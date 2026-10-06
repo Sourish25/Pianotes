@@ -48,9 +48,6 @@ jobs:
       - name: Sync Capacitor Android
         run: npx cap sync android
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Grant Execute Permission to Gradle Wrapper
         run: chmod +x ./android/gradlew
 
@@ -61,7 +58,11 @@ jobs:
 
       - name: Stage Artifacts
         run: |
-          cp android/app/build/outputs/apk/release/app-release.apk Pianotes-release.apk
+          if [ -f android/app/build/outputs/apk/release/app-release.apk ]; then
+            cp android/app/build/outputs/apk/release/app-release.apk Pianotes-release.apk
+          elif [ -f android/app/build/outputs/apk/release/app-release-unsigned.apk ]; then
+            cp android/app/build/outputs/apk/release/app-release-unsigned.apk Pianotes-release.apk
+          fi
           cp android/app/build/outputs/apk/debug/app-debug.apk Pianotes-debug.apk
           ls -lh *.apk
 
