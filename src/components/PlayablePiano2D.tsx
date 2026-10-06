@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { pianoEngine } from '../audio/PianoEngine';
 import { isBlackKey, midiToNoteName } from '../utils/chordDetector';
-import { Music, Disc } from 'lucide-react';
+import { Music, Disc, ChevronLeft, ChevronRight } from 'lucide-react';
 
 export interface ActiveKeyInfo {
   pitch: number;
@@ -11,6 +11,7 @@ export interface ActiveKeyInfo {
 interface PlayablePiano2DProps {
   activeKeys?: number[] | ActiveKeyInfo[];
   onUserPlayKey?: (midi: number) => void;
+  onUserReleaseKey?: (midi: number) => void;
   sustainPedal: boolean;
   onToggleSustain: () => void;
 }
@@ -18,6 +19,7 @@ interface PlayablePiano2DProps {
 export const PlayablePiano2D: React.FC<PlayablePiano2DProps> = ({
   activeKeys = [],
   onUserPlayKey,
+  onUserReleaseKey,
   sustainPedal,
   onToggleSustain,
 }) => {
@@ -93,6 +95,8 @@ export const PlayablePiano2D: React.FC<PlayablePiano2DProps> = ({
     return () => vp.removeEventListener('scroll', handleScroll);
   }, [handleScroll]);
 
+  const [currentOctave, setCurrentOctave] = useState<number>(4);
+
   // Handle Note Trigger & Release
   const handleNoteStart = useCallback((midi: number) => {
     pianoEngine.playNote(midi, 0.85);
@@ -107,6 +111,21 @@ export const PlayablePiano2D: React.FC<PlayablePiano2DProps> = ({
       next.delete(midi);
       return next;
     });
+    if (onUserReleaseKey) onUserReleaseKey(midi);
+  }, [onUserReleaseKey]);
+
+  // Jump smoothly to a specific octave (C1 to C7)
+  const scrollToOctave = useCallback((octave: number) => {
+    const clamped = Math.max(1, Math.min(7, octave));
+    setCurrentOctave(clamped);
+    const targetMidi = 12 + clamped * 12; // C1=24, C2=36, C3=48, C4=60, C5=72, C6=84, C7=96
+    const el = keyboardViewportRef.current;
+    if (!el) return;
+    const keyEl = el.querySelector(`[data-midi="${targetMidi}"]`) as HTMLElement;
+    if (keyEl) {
+      const targetScroll = keyEl.offsetLeft - el.clientWidth / 2 + keyEl.clientWidth / 2;
+      el.scrollTo({ left: Math.max(0, targetScroll), behavior: 'smooth' });
+    }
   }, []);
 
   // Keyboard shortcut for sustain pedal (Spacebar)
@@ -148,8 +167,42 @@ export const PlayablePiano2D: React.FC<PlayablePiano2DProps> = ({
             <Music className="w-3.5 h-3.5 text-purple-400" />
             <span>Interactive 88-Key Concert Keyboard</span>
           </div>
-          <span className="text-zinc-500">|</span>
-          <span className="text-zinc-400">Click & Drag Glissando Enabled</span>
+          <span className="text-zinc-500 hidden sm:inline">|</span>
+          <span className="text-zinc-400 hidden sm:inline">Glissando Drag</span>
+        </div>
+
+        {/* Octave Switcher */}
+        <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/5 border border-white/10">
+          <span className="text-[10px] text-zinc-500 font-semibold mr-1">OCTAVE:</span>
+          <button
+            onClick={() => scrollToOctave(currentOctave - 1)}
+            disabled={currentOctave <= 1}
+            className="p-1 rounded-md text-zinc-400 hover:text-white disabled:opacity-30 disabled:hover:text-zinc-400"
+            title="Previous Octave"
+          >
+            <ChevronLeft className="w-3 h-3" />
+          </button>
+          {[1, 2, 3, 4, 5, 6, 7].map((oct) => (
+            <button
+              key={oct}
+              onClick={() => scrollToOctave(oct)}
+              className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition-all ${
+                currentOctave === oct
+                  ? 'bg-purple-600 text-white shadow-sm'
+                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/10'
+              }`}
+            >
+              C{oct}
+            </button>
+          ))}
+          <button
+            onClick={() => scrollToOctave(currentOctave + 1)}
+            disabled={currentOctave >= 7}
+            className="p-1 rounded-md text-zinc-400 hover:text-white disabled:opacity-30 disabled:hover:text-zinc-400"
+            title="Next Octave"
+          >
+            <ChevronRight className="w-3 h-3" />
+          </button>
         </div>
 
         <div className="flex items-center gap-3">

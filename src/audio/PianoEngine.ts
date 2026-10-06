@@ -383,7 +383,7 @@ export class PianoAudioEngine {
       if (!this.ctx) return;
       const releaseTime = this.ctx.currentTime;
       gainNode.gain.cancelScheduledValues(releaseTime);
-      gainNode.gain.setValueAtTime(gainNode.gain.value, releaseTime);
+      gainNode.gain.setValueAtTime(Math.max(0.0001, gainNode.gain.value), releaseTime);
       gainNode.gain.exponentialRampToValueAtTime(0.0001, releaseTime + 0.25);
       setTimeout(() => {
         oscs.forEach((o) => {
@@ -432,7 +432,7 @@ export class PianoAudioEngine {
       if (!this.ctx) return;
       const releaseTime = this.ctx.currentTime;
       gainNode.gain.cancelScheduledValues(releaseTime);
-      gainNode.gain.setValueAtTime(gainNode.gain.value, releaseTime);
+      gainNode.gain.setValueAtTime(Math.max(0.0001, gainNode.gain.value), releaseTime);
       gainNode.gain.exponentialRampToValueAtTime(0.0001, releaseTime + 0.18);
       setTimeout(() => {
         try {
@@ -499,7 +499,7 @@ export class PianoAudioEngine {
       if (!this.ctx) return;
       const releaseTime = this.ctx.currentTime;
       gainNode.gain.cancelScheduledValues(releaseTime);
-      gainNode.gain.setValueAtTime(gainNode.gain.value, releaseTime);
+      gainNode.gain.setValueAtTime(Math.max(0.0001, gainNode.gain.value), releaseTime);
       gainNode.gain.exponentialRampToValueAtTime(0.0001, releaseTime + 0.2);
       setTimeout(() => {
         try {
@@ -555,7 +555,7 @@ export class PianoAudioEngine {
       if (!this.ctx) return;
       const releaseTime = this.ctx.currentTime;
       gainNode.gain.cancelScheduledValues(releaseTime);
-      gainNode.gain.setValueAtTime(gainNode.gain.value, releaseTime);
+      gainNode.gain.setValueAtTime(Math.max(0.0001, gainNode.gain.value), releaseTime);
       gainNode.gain.exponentialRampToValueAtTime(0.0001, releaseTime + 0.22);
       setTimeout(() => {
         try {
@@ -619,7 +619,7 @@ export class PianoAudioEngine {
       if (!this.ctx) return;
       const releaseTime = this.ctx.currentTime;
       gainNode.gain.cancelScheduledValues(releaseTime);
-      gainNode.gain.setValueAtTime(gainNode.gain.value, releaseTime);
+      gainNode.gain.setValueAtTime(Math.max(0.0001, gainNode.gain.value), releaseTime);
       gainNode.gain.exponentialRampToValueAtTime(0.0001, releaseTime + 0.22);
       setTimeout(() => {
         try {
@@ -669,7 +669,7 @@ export class PianoAudioEngine {
       if (!this.ctx) return;
       const releaseTime = this.ctx.currentTime;
       gainNode.gain.cancelScheduledValues(releaseTime);
-      gainNode.gain.setValueAtTime(gainNode.gain.value, releaseTime);
+      gainNode.gain.setValueAtTime(Math.max(0.0001, gainNode.gain.value), releaseTime);
       gainNode.gain.exponentialRampToValueAtTime(0.0001, releaseTime + 0.2);
       setTimeout(() => {
         try {
@@ -720,7 +720,7 @@ export class PianoAudioEngine {
       if (!this.ctx) return;
       const releaseTime = this.ctx.currentTime;
       gainNode.gain.cancelScheduledValues(releaseTime);
-      gainNode.gain.setValueAtTime(gainNode.gain.value, releaseTime);
+      gainNode.gain.setValueAtTime(Math.max(0.0001, gainNode.gain.value), releaseTime);
       gainNode.gain.exponentialRampToValueAtTime(0.0001, releaseTime + 0.24);
       setTimeout(() => {
         try {
@@ -769,7 +769,7 @@ export class PianoAudioEngine {
       if (!this.ctx) return;
       const releaseTime = this.ctx.currentTime;
       gainNode.gain.cancelScheduledValues(releaseTime);
-      gainNode.gain.setValueAtTime(gainNode.gain.value, releaseTime);
+      gainNode.gain.setValueAtTime(Math.max(0.0001, gainNode.gain.value), releaseTime);
       gainNode.gain.exponentialRampToValueAtTime(0.0001, releaseTime + 0.15);
       setTimeout(() => {
         try {
@@ -830,7 +830,7 @@ export class PianoAudioEngine {
       if (!this.ctx) return;
       const releaseTime = this.ctx.currentTime;
       gainNode.gain.cancelScheduledValues(releaseTime);
-      gainNode.gain.setValueAtTime(gainNode.gain.value, releaseTime);
+      gainNode.gain.setValueAtTime(Math.max(0.0001, gainNode.gain.value), releaseTime);
       gainNode.gain.exponentialRampToValueAtTime(0.0001, releaseTime + 0.28);
       setTimeout(() => {
         try {

@@ -49,7 +49,7 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
   const userPlayedKeysRef = useRef(userPlayedKeys);
 
   // Camera Orbit / Drag Interaction State
-  const cameraAngleRef = useRef({ yaw: 0, pitch: 0 });
+  const cameraAngleRef = useRef({ yaw: 0, pitch: 0, zoom: 1.0 });
   const isDraggingRef = useRef(false);
   const dragStartRef = useRef({ x: 0, y: 0 });
 
@@ -262,9 +262,21 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
       isDraggingRef.current = false;
     };
 
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const delta = e.deltaY * 0.0012;
+      cameraAngleRef.current.zoom = Math.max(0.65, Math.min(1.8, cameraAngleRef.current.zoom + delta));
+    };
+
+    const handleDblClick = () => {
+      cameraAngleRef.current = { yaw: 0, pitch: 0, zoom: 1.0 };
+    };
+
     container.addEventListener('pointerdown', handlePointerDown);
     window.addEventListener('pointermove', handlePointerMove);
     window.addEventListener('pointerup', handlePointerUp);
+    container.addEventListener('wheel', handleWheel, { passive: false });
+    container.addEventListener('dblclick', handleDblClick);
 
     // Window Resize Handler
     const handleResize = () => {
@@ -372,13 +384,15 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
         }
       });
 
-      // Update 3D Piano Key Depressions and Illumination
+      // Update 3D Piano Key Depressions, Mechanical Fulcrum Tilting, and Illumination
       keyMeshesRef.current.forEach((keyMesh, midi) => {
         const isDepressed = activeStrikingPitches.includes(midi);
         const baseY = keyBaseYRef.current.get(midi) || 0;
-        const targetY = isDepressed ? baseY - 0.38 : baseY;
+        const targetY = isDepressed ? baseY - 0.35 : baseY;
+        const targetRotX = isDepressed ? 0.08 : 0; // Fulcrum mechanical downward tilt
 
-        keyMesh.position.y += (targetY - keyMesh.position.y) * 0.38;
+        keyMesh.position.y += (targetY - keyMesh.position.y) * 0.42;
+        keyMesh.rotation.x += (targetRotX - keyMesh.rotation.x) * 0.42;
 
         const mat = keyMesh.material as THREE.MeshStandardMaterial;
         if (isDepressed) {
@@ -457,8 +471,8 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
           : 0;
 
       const targetCamX = avgX * 0.2 + cameraAngleRef.current.yaw * 16;
-      const targetCamY = 22 + cameraAngleRef.current.pitch * 14;
-      const targetCamZ = 28;
+      const targetCamY = (22 + cameraAngleRef.current.pitch * 14) * cameraAngleRef.current.zoom;
+      const targetCamZ = 28 * cameraAngleRef.current.zoom;
 
       camera.position.x += (targetCamX - camera.position.x) * 0.05;
       camera.position.y += (targetCamY - camera.position.y) * 0.05;
@@ -484,6 +498,8 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
       container.removeEventListener('pointerdown', handlePointerDown);
       window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('pointerup', handlePointerUp);
+      container.removeEventListener('wheel', handleWheel);
+      container.removeEventListener('dblclick', handleDblClick);
       window.removeEventListener('resize', handleResize);
 
       noteMeshes.forEach((mesh) => {
@@ -546,6 +562,19 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
           <div className="w-2.5 h-2.5 rounded-full bg-amber-500 shadow-[0_0_8px_#f59e0b]" />
           <span className="text-xs font-semibold text-amber-200">Right Hand (Amber)</span>
         </div>
+      </div>
+
+      {/* 3D Camera Orbit & Zoom Reset Pill */}
+      <div className="absolute top-6 right-6 flex items-center gap-2 z-30">
+        <button
+          onClick={() => {
+            cameraAngleRef.current = { yaw: 0, pitch: 0, zoom: 1.0 };
+          }}
+          className="px-3 py-1.5 rounded-full text-xs font-semibold text-zinc-300 hover:text-white bg-[#0e101a]/80 hover:bg-[#181a28] border border-white/15 backdrop-blur-md shadow-lg transition-all active:scale-95"
+          title="Reset camera orbit and zoom (or double-click canvas)"
+        >
+          Reset 3D View
+        </button>
       </div>
     </div>
   );

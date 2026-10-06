@@ -218,3 +218,133 @@ describe('Piano Audio Engine & DSP Rack', () => {
     expect(updatedDSP.driveAmount).toBe(0.6);
   });
 });
+
+describe('Standard MIDI Binary Parser', () => {
+  // Helper to generate a minimal valid Standard MIDI File buffer (format 0, 1 track, 480 ticks/beat)
+  function createMinimalMidiBuffer(): ArrayBuffer {
+    const bytes: number[] = [
+      // MThd Header
+      0x4d, 0x54, 0x68, 0x64, // 'MThd'
+      0x00, 0x00, 0x00, 0x06, // length 6
+      0x00, 0x00,             // format 0
+      0x00, 0x01,             // 1 track
+      0x01, 0xe0,             // 480 ticks/beat
+      // MTrk Track
+      0x4d, 0x54, 0x72, 0x6b, // 'MTrk'
+      0x00, 0x00, 0x00, 0x18, // length 24 bytes
+      // Event 1: Note On C4 (pitch 60, vel 80, delta 0)
+      0x00, 0x90, 0x3c, 0x50,
+      // Event 2: Note Off C4 (pitch 60, vel 0, delta 480 ticks)
+      0x83, 0x60, 0x80, 0x3c, 0x00,
+      // Event 3: Note On G3 (pitch 55 - left hand, vel 70, delta 0)
+      0x00, 0x90, 0x37, 0x46,
+      // Event 4: Note Off G3 (pitch 55, vel 0, delta 480 ticks)
+      0x83, 0x60, 0x80, 0x37, 0x00,
+      // End of Track Meta Event
+      0x00, 0xff, 0x2f, 0x00,
+    ];
+
+    const buffer = new ArrayBuffer(bytes.length);
+    const view = new Uint8Array(buffer);
+    bytes.forEach((b, i) => (view[i] = b));
+    return buffer;
+  }
+
+  it('correctly parses binary MIDI files into SongData structures', async () => {
+    const { parseMidiFile } = await import('../utils/midiParser');
+    const buffer = createMinimalMidiBuffer();
+    const song = parseMidiFile(buffer, 'test_composition.mid');
+
+    expect(song.title).toBe('test composition');
+    expect(song.notes.length).toBe(2);
+
+    // Verify first note C4 (right hand amber)
+    const c4 = song.notes.find((n) => n.pitch === 60);
+    expect(c4).toBeDefined();
+    expect(c4?.hand).toBe('right');
+    expect(c4?.velocity).toBeCloseTo(80 / 127, 2);
+
+    // Verify second note G3 (left hand violet)
+    const g3 = song.notes.find((n) => n.pitch === 55);
+    expect(g3).toBeDefined();
+    expect(g3?.hand).toBe('left');
+  });
+
+  it('safely rejects corrupt or invalid MIDI buffers', async () => {
+    const { parseMidiFile } = await import('../utils/midiParser');
+    const badBuffer = new ArrayBuffer(8); // Too small
+    expect(() => parseMidiFile(badBuffer, 'corrupt.mid')).toThrow();
+  });
+});
+
+describe('Wait-for-Me Practice Mode Mechanics', () => {
+  it('advances past satisfied notes without deadlock when user plays key', () => {
+    // Simulate interactive score progression
+    const sampleNotes = [
+      { id: 'n1', pitch: 60, startTime: 1.0, duration: 0.5, velocity: 0.8, hand: 'right' as const },
+      { id: 'n2', pitch: 64, startTime: 2.0, duration: 0.5, velocity: 0.8, hand: 'right' as const },
+    ];
+
+    const satisfiedNoteIds = new Set<string>();
+    const userPlayedKeys = new Set<number>();
+
+    function checkWaitState(currentTime: number, nextTime: number) {
+      const eligibleNotes = sampleNotes.filter(
+        (n) => n.startTime <= nextTime && !satisfiedNoteIds.has(n.id)
+      );
+
+      eligibleNotes.forEach((n) => {
+        if (userPlayedKeys.has(n.pitch)) {
+          satisfiedNoteIds.add(n.id);
+        }
+      });
+
+      const remainingUnsatisfied = eligibleNotes.filter((n) => !satisfiedNoteIds.has(n.id));
+      if (remainingUnsatisfied.length > 0) {
+        return { isWaiting: true, waitingPitch: remainingUnsatisfied[0].pitch, nextTime: Math.min(currentTime, remainingUnsatisfied[0].startTime) };
+      }
+      return { isWaiting: false, waitingPitch: null, nextTime };
+    }
+
+    // Step 1: Clock reaches strike time of note 1 (1.0s)
+    let state = checkWaitState(0.98, 1.02);
+    expect(state.isWaiting).toBe(true);
+    expect(state.waitingPitch).toBe(60);
+    expect(state.nextTime).toBe(0.98); // Paused!
+
+    // Step 2: User plays key 60!
+    userPlayedKeys.add(60);
+    state = checkWaitState(0.98, 1.02);
+    expect(state.isWaiting).toBe(false);
+    expect(satisfiedNoteIds.has('n1')).toBe(true);
+
+    // Step 3: User releases key 60 (or time elapses). Clock reaches 1.2s.
+    userPlayedKeys.delete(60);
+    // CRITICAL: Previously, lack of satisfiedNoteIds caused the engine to freeze again here!
+    state = checkWaitState(1.15, 1.20);
+    expect(state.isWaiting).toBe(false);
+    expect(state.nextTime).toBe(1.20); // Continues advancing smoothly!
+
+    // Step 4: Clock reaches note 2 at 2.0s
+    state = checkWaitState(1.98, 2.02);
+    expect(state.isWaiting).toBe(true);
+    expect(state.waitingPitch).toBe(64);
+  });
+});
+
+describe('Octave Navigation & Clamping', () => {
+  it('correctly maps octaves to MIDI target pitches and bounds', () => {
+    const octToMidi = (oct: number) => 12 + Math.max(1, Math.min(7, oct)) * 12;
+    expect(octToMidi(1)).toBe(24);  // C1
+    expect(octToMidi(2)).toBe(36);  // C2
+    expect(octToMidi(3)).toBe(48);  // C3
+    expect(octToMidi(4)).toBe(60);  // C4 (Middle C)
+    expect(octToMidi(5)).toBe(72);  // C5
+    expect(octToMidi(6)).toBe(84);  // C6
+    expect(octToMidi(7)).toBe(96);  // C7
+    // Clamping test
+    expect(octToMidi(0)).toBe(24);
+    expect(octToMidi(9)).toBe(96);
+  });
+});
+

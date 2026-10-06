@@ -2,16 +2,18 @@
 
 <div align="center">
 
+![Version: 1.1.0](https://img.shields.io/badge/Release-v1.1.0-blue.svg?style=for-the-badge)
 ![License: MIT](https://img.shields.io/badge/License-MIT-purple.svg?style=for-the-badge)
 ![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)
 ![React 19](https://img.shields.io/badge/React_19-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)
 ![Three.js](https://img.shields.io/badge/Three.js-000000?style=for-the-badge&logo=three.dot.js&logoColor=white)
 ![Web Audio](https://img.shields.io/badge/Web_Audio_API-f59e0b?style=for-the-badge&logo=audio&logoColor=white)
+![Web MIDI](https://img.shields.io/badge/Web_MIDI_API-emerald?style=for-the-badge&logo=midi&logoColor=white)
 ![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=for-the-badge)
 
 <p align="center">
   <b>A 1:1 Apple Liquid Glass 3D Piano & Falling Note Synthesizer for the Web and Mobile.</b><br>
-  Dual viewports, real-time IRL acoustic microphone pitch detection, 9-voice sound engine, 4-stage DSP effects rack, and social reel transcription pipeline.
+  Dual viewports, physical key tilting, Web MIDI hardware support, real-time IRL acoustic microphone pitch detection, 9-voice sound engine, 4-stage DSP effects rack, native Standard MIDI file ingestion, and Demucs / ByteDance AMT neural transcription studio.
 </p>
 
 </div>
@@ -51,15 +53,17 @@ Whether you want to learn classical masterpieces with the intelligent **"Wait-fo
 
 - **3D Perspective Waterfall Viewport**:
   - WebGL rendered with Three.js.
-  - Left Hand violet and Right Hand amber cascading note bars.
-  - Physical 3D keys with spring-loaded rebound physics upon note strike.
+  - Left Hand violet (`#a855f7`) and Right Hand amber (`#f59e0b`) cascading note bars.
+  - Realistic mechanical 3D key tilting on balance pin fulcrum dynamics when notes strike.
   - Neon strike line with active particle burst cosmic sparks.
-  - Camera orbit navigation (click and drag to rotate viewing angles in 3D space).
+  - Interactive camera orbit navigation (click and drag to rotate viewing angles in 3D space, mouse wheel / pinch zoom).
+  - Quick "Reset 3D View" glass pill button and canvas double-click gesture.
   - Floating chord badge displaying real-time harmonic analysis (`Fm`, `C`, `Ab`, `Bb`, etc.).
 - **2D Standalone Playable Piano**:
   - Full 88-key keyboard (MIDI 21 $A_0$ to MIDI 108 $C_8$) with white and black key physics.
   - Touch-sensitive glissando sliding across keys without missing a note.
-  - Dynamic octave navigator mini-map ribbon for rapid viewport repositioning.
+  - Dedicated Octave Switcher buttons (`C1` through `C7` and `[◀ Oct]` / `[Oct ▶]`) for rapid viewport repositioning.
+  - Octave navigator mini-map ribbon.
   - Real-time LED key illumination reflecting both computer playback and user interaction.
 - **Split Dual View**:
   - Simultaneous top 3D waterfall and bottom 2D playable piano with real-time bidirectional synchronization.
@@ -93,10 +97,14 @@ Pianotes features an extensive Web Audio API synthesizer library with **9 distin
 
 ---
 
-### 4. Interactive Practice & "Wait-for-Me" Mode
-- **"Wait-for-Me" Mode**: When enabled, song playback automatically pauses at the strike line whenever a note is reached until you press the correct piano key on screen or play it on your physical piano!
+### 4. Interactive Practice, "Wait-for-Me" Mode & Web MIDI
+- **Intelligent "Wait-for-Me" Mode**: When enabled, song playback automatically pauses right at the strike line whenever a note arrives until you strike the correct piano key, with persistent note satisfaction tracking preventing time deadlocks.
+- **Hardware Web MIDI API Integration**:
+  - Connect your physical digital piano (USB / Bluetooth) with zero configuration.
+  - Automatically receives live `noteon`, `noteoff`, and sustain pedal `CC 64` messages directly into the audio and practice engines.
+  - Live hardware device indicator badge in the top navigation bar.
 - **Real-time Acoustic Microphone Pitch Detection**:
-  - Uses the Web Audio API with autocorrelation pitch extraction.
+  - Uses the Web Audio API with autocorrelation frequency extraction.
   - Play an actual acoustic piano in your room, and Pianotes hears the note IRL and presses the corresponding key on screen with live VU metering.
 - **Hand Isolation Practice**:
   - Isolate Left Hand only (Violet), Right Hand only (Amber), or practice Both Hands simultaneously.
@@ -107,15 +115,12 @@ Pianotes features an extensive Web Audio API synthesizer library with **9 distin
 
 ### 5. Social Reel Ingestion & Transcription Pipeline
 - **Social Media Parser**: Paste links from **Instagram Reels**, **TikTok**, or **YouTube Shorts**.
-- **Media File Dropzone**: Drag and drop `.mp4`, `.mov`, `.midi`, or `.mp3` files directly into Pianotes.
-- **Transcription Architecture**:
-  ```
-  [Social Reel / Video] ──► [Audio Demux] ──► [Demucs Stem Separator]
-                                                    │
-                                             (Piano Stem)
-                                                    ▼
-  [Interactive Waterfall] ◄── [MIDI JSON] ◄── [ByteDance AMT Onset/Frame Model]
-  ```
+- **Native Standard MIDI File Ingestion**:
+  - Pure TypeScript zero-dependency binary SMF parser (`parseMidiFile`) reading `.mid` and `.midi` files directly.
+  - Automatically converts delta ticks to seconds and separates Left Hand and Right Hand tracks.
+- **Demucs v4 & ByteDance AMT Transcription Studio**:
+  - Dedicated architecture viewer displaying the 4-stem waveform separation pipeline.
+  - Configurable model selection (`htdemucs_ft` / `demucs_v4_extra`) and interactive Onset / Frame threshold controls.
 - **Masterpiece Library Pre-loaded**:
   - *Interstellar Main Theme* — Hans Zimmer (Virtuoso)
   - *Nocturne Op. 9 No. 2* — Frédéric Chopin (Intermediate)
@@ -132,7 +137,10 @@ Pianotes features an extensive Web Audio API synthesizer library with **9 distin
 | `Space` | Sustain Pedal (Hold or Latch) / Play-Pause |
 | `A`, `W`, `S`, `E`, `D`, `F`, `T`, `G`, `Y`, `H`, `U`, `J`, `K` | Playable Piano Keys ($C_4$ to $C_5$) |
 | `Left Click + Drag` in 3D Viewport | Orbit 3D Camera Angle |
+| `Mouse Wheel / Pinch` in 3D Viewport | Zoom Camera In and Out |
+| `Double Click` in 3D Viewport | Reset Camera Angle & Zoom to Default |
 | `Click & Drag` on 2D Piano Keys | Smooth Glissando Piano Slide |
+| `Click` on Octave Buttons (`C1`–`C7`) | Instant Octave Viewport Shift |
 | `Click` on Mini-map Ribbon | Fast Scroll Octave Viewport |
 
 ---
@@ -143,6 +151,7 @@ Pianotes features an extensive Web Audio API synthesizer library with **9 distin
 - **Bundler & Tooling**: [Vite](https://vitejs.dev/) + [Oxlint](https://oxc-project.github.io/)
 - **3D Graphics Engine**: [Three.js](https://threejs.org/) (WebGL Canvas, Shader Materials, Particle Systems)
 - **Audio Synthesis**: Native [Web Audio API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API) (ConvolverNode, WaveShaperNode, BiquadFilterNode, StereoPannerNode, DelayNode)
+- **Hardware Integration**: [Web MIDI API](https://developer.mozilla.org/en-US/docs/Web/API/Web_MIDI_API) (USB & Bluetooth Digital Pianos)
 - **Styling**: [Tailwind CSS v4](https://tailwindcss.com/) + Custom Apple Liquid Glass CSS Shaders
 - **Testing**: [Vitest](https://vitest.dev/)
 

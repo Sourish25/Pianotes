@@ -3,6 +3,7 @@ import type { SongData, HandType, InstrumentType, ViewportMode } from './types';
 import { SAMPLE_SONGS } from './data/songs';
 import { pianoEngine } from './audio/PianoEngine';
 import { micListener } from './audio/MicrophoneListener';
+import { webMidiManager } from './audio/WebMidiManager';
 import { LiquidGlassSVGDefs, LiquidGlassButton } from './components/LiquidGlass';
 import { Waterfall3D } from './components/Waterfall3D';
 import { PlayablePiano2D } from './components/PlayablePiano2D';
@@ -14,6 +15,7 @@ import {
   Music,
   ChevronDown,
   Info,
+  Disc,
 } from 'lucide-react';
 
 export const App: React.FC = () => {
@@ -49,8 +51,10 @@ export const App: React.FC = () => {
   const [activeNotes, setActiveNotes] = useState<ActiveNoteInfo[]>([]);
   const [userPlayedPitches, setUserPlayedPitches] = useState<number[]>([]);
   const [waitingForPitch, setWaitingForPitch] = useState<{ pitch: number; hand: 'left' | 'right'; name: string } | null>(null);
+  const [connectedMidiDevice, setConnectedMidiDevice] = useState<string | null>(null);
 
   const userPlayedKeysRef = useRef<Set<number>>(new Set());
+  const satisfiedNoteIdsRef = useRef<Set<string>>(new Set());
 
   // Animation frame ref for high-precision audio/waterfall clock
   const animFrameRef = useRef<number | null>(null);
@@ -82,23 +86,43 @@ export const App: React.FC = () => {
     });
   }, []);
 
-  // Handle Note Trigger by User (from on-screen keyboard, computer keyboard, or mic)
-  const handleUserPlayKey = useCallback((midi: number) => {
-    userPlayedKeysRef.current.add(midi);
+  // Handle Note Release by User
+  const handleUserReleaseKey = useCallback((midi: number) => {
+    userPlayedKeysRef.current.delete(midi);
     setUserPlayedPitches(Array.from(userPlayedKeysRef.current));
-
-    setActiveNotes((prev) => {
-      const filtered = prev.filter((n) => n.pitch !== midi);
-      return [...filtered, { pitch: midi, hand: 'user' }];
-    });
-
-    // Remove from user played list after brief release
-    setTimeout(() => {
-      userPlayedKeysRef.current.delete(midi);
-      setUserPlayedPitches(Array.from(userPlayedKeysRef.current));
-      setActiveNotes((prev) => prev.filter((n) => n.pitch !== midi || n.hand !== 'user'));
-    }, 450);
+    setActiveNotes((prev) => prev.filter((n) => n.pitch !== midi || n.hand !== 'user'));
+    pianoEngine.stopNote(midi);
   }, []);
+
+  // Handle Note Trigger by User (from on-screen keyboard, computer keyboard, mic, or MIDI)
+  const handleUserPlayKey = useCallback(
+    (midi: number, fromMic: boolean = false) => {
+      userPlayedKeysRef.current.add(midi);
+      setUserPlayedPitches(Array.from(userPlayedKeysRef.current));
+
+      setActiveNotes((prev) => {
+        const filtered = prev.filter((n) => n.pitch !== midi);
+        return [...filtered, { pitch: midi, hand: 'user' }];
+      });
+
+      // Mark any matching upcoming or current notes as satisfied for Wait-for-Me mode
+      currentSong.notes.forEach((note) => {
+        if (note.pitch === midi && Math.abs(note.startTime - currentTime) <= 1.0) {
+          satisfiedNoteIdsRef.current.add(note.id);
+        }
+      });
+
+      setWaitingForPitch((cur) => (cur && cur.pitch === midi ? null : cur));
+
+      // For microphone detection, auto-release after short acoustic decay (260ms)
+      if (fromMic) {
+        setTimeout(() => {
+          handleUserReleaseKey(midi);
+        }, 260);
+      }
+    },
+    [currentTime, currentSong, handleUserReleaseKey]
+  );
 
   // Toggle Microphone Pitch Detection
   const handleToggleMic = async () => {
@@ -109,7 +133,8 @@ export const App: React.FC = () => {
     } else {
       const started = await micListener.start(
         (midi) => {
-          handleUserPlayKey(midi);
+          pianoEngine.playNote(midi, 0.8);
+          handleUserPlayKey(midi, true);
         },
         (level) => {
           setMicLevel(level);
@@ -120,6 +145,26 @@ export const App: React.FC = () => {
       }
     }
   };
+
+  // Connect Web MIDI API for USB / Bluetooth Keyboards
+  useEffect(() => {
+    webMidiManager.init(
+      (pitch, velocity) => {
+        pianoEngine.playNote(pitch, velocity);
+        handleUserPlayKey(pitch);
+      },
+      (pitch) => {
+        handleUserReleaseKey(pitch);
+      },
+      (isDown) => {
+        setSustainPedal(isDown);
+        pianoEngine.setSustainPedal(isDown);
+      },
+      (device) => {
+        setConnectedMidiDevice(device);
+      }
+    );
+  }, [handleUserPlayKey, handleUserReleaseKey]);
 
   // Main Playback Clock Loop
   useEffect(() => {
@@ -152,32 +197,41 @@ export const App: React.FC = () => {
         }
 
         // Wait-for-Me Mode Check:
-        // If there are notes reaching the strike line that haven't been pressed by the user, pause clock!
+        // Pauses playback at the strike line until the user strikes the waiting note!
         if (waitForMe) {
-          const upcomingStriking = currentSong.notes.filter(
+          const eligibleNotes = currentSong.notes.filter(
             (n) =>
               (activeHand === 'both' || n.hand === activeHand) &&
-              n.startTime <= nextTime + 0.05 &&
-              n.startTime >= nextTime - 0.2
+              n.startTime <= nextTime &&
+              !satisfiedNoteIdsRef.current.has(n.id)
           );
 
-          if (upcomingStriking.length > 0) {
-            const unplayed = upcomingStriking.find(
-              (n) => !userPlayedKeysRef.current.has(n.pitch)
-            );
-            if (unplayed) {
-              const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-              const name = `${noteNames[unplayed.pitch % 12]}${Math.floor(unplayed.pitch / 12) - 1}`;
-              setWaitingForPitch({
-                pitch: unplayed.pitch,
-                hand: unplayed.hand,
-                name,
-              });
-              // Hold playback right at strike point until user plays note
-              return prevTime;
+          // Check if any eligible notes are currently being pressed by user
+          eligibleNotes.forEach((n) => {
+            if (userPlayedKeysRef.current.has(n.pitch)) {
+              satisfiedNoteIdsRef.current.add(n.id);
             }
+          });
+
+          const remainingUnsatisfied = eligibleNotes.filter(
+            (n) => !satisfiedNoteIdsRef.current.has(n.id)
+          );
+
+          if (remainingUnsatisfied.length > 0) {
+            remainingUnsatisfied.sort((a, b) => a.startTime - b.startTime);
+            const unplayed = remainingUnsatisfied[0];
+            const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+            const name = `${noteNames[unplayed.pitch % 12]}${Math.floor(unplayed.pitch / 12) - 1}`;
+            setWaitingForPitch({
+              pitch: unplayed.pitch,
+              hand: unplayed.hand,
+              name,
+            });
+            // Hold playback right at strike point until user plays note
+            return Math.min(prevTime, unplayed.startTime);
+          } else {
+            setWaitingForPitch(null);
           }
-          setWaitingForPitch(null);
         } else {
           setWaitingForPitch(null);
         }
@@ -249,6 +303,7 @@ export const App: React.FC = () => {
   // Restart Song
   const handleRestart = () => {
     setCurrentTime(0);
+    satisfiedNoteIdsRef.current.clear();
     stopAllVoices();
   };
 
@@ -256,6 +311,12 @@ export const App: React.FC = () => {
   const handleSeek = (seconds: number) => {
     setCurrentTime(seconds);
     stopAllVoices();
+    satisfiedNoteIdsRef.current.clear();
+    currentSong.notes.forEach((n) => {
+      if (n.startTime < seconds) {
+        satisfiedNoteIdsRef.current.add(n.id);
+      }
+    });
   };
 
   // Switch Song
@@ -299,7 +360,7 @@ export const App: React.FC = () => {
       if (document.activeElement?.tagName === 'INPUT') return;
       const midi = KEY_MAP[e.code];
       if (midi) {
-        pianoEngine.stopNote(midi);
+        handleUserReleaseKey(midi);
       }
     };
 
@@ -309,7 +370,7 @@ export const App: React.FC = () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [handleUserPlayKey]);
+  }, [handleUserPlayKey, handleUserReleaseKey]);
 
   return (
     <div className="relative w-screen h-screen flex flex-col obsidian-backdrop overflow-hidden select-none">
@@ -374,6 +435,14 @@ export const App: React.FC = () => {
 
         {/* Right Section: Song Library & Instrument Pills */}
         <div className="flex items-center gap-3">
+          {/* Connected Web MIDI device badge */}
+          {connectedMidiDevice && (
+            <div className="hidden lg:flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 text-xs font-mono shadow-[0_0_12px_rgba(16,185,129,0.3)]">
+              <Disc className="w-3.5 h-3.5 text-emerald-400 animate-spin" />
+              <span>MIDI: {connectedMidiDevice}</span>
+            </div>
+          )}
+
           {/* Active Song Selector Pill */}
           <LiquidGlassButton
             onClick={() => setIsIngestionOpen(true)}
@@ -463,6 +532,7 @@ export const App: React.FC = () => {
             <PlayablePiano2D
               activeKeys={activeNotes}
               onUserPlayKey={handleUserPlayKey}
+              onUserReleaseKey={handleUserReleaseKey}
               sustainPedal={sustainPedal}
               onToggleSustain={handleToggleSustain}
             />
