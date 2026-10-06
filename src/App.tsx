@@ -41,14 +41,37 @@ export const App: React.FC = () => {
   const [isInstrumentOpen, setIsInstrumentOpen] = useState<boolean>(false);
   const [showInfoModal, setShowInfoModal] = useState<boolean>(false);
 
-  // Active Keys tracking (currently ringing notes)
-  const [activeMidiKeys, setActiveMidiKeys] = useState<number[]>([]);
+  // Active Keys tracking (currently ringing notes with hand separation)
+  interface ActiveNoteInfo {
+    pitch: number;
+    hand: 'left' | 'right' | 'user';
+  }
+  const [activeNotes, setActiveNotes] = useState<ActiveNoteInfo[]>([]);
+  const [userPlayedPitches, setUserPlayedPitches] = useState<number[]>([]);
+  const [waitingForPitch, setWaitingForPitch] = useState<{ pitch: number; hand: 'left' | 'right'; name: string } | null>(null);
+
   const userPlayedKeysRef = useRef<Set<number>>(new Set());
 
   // Animation frame ref for high-precision audio/waterfall clock
   const animFrameRef = useRef<number | null>(null);
   const lastTimestampRef = useRef<number | null>(null);
   const playedNoteIdsRef = useRef<Set<string>>(new Set());
+  const stoppedNoteIdsRef = useRef<Set<string>>(new Set());
+
+  // Stop all active synthesizer voices cleanly
+  const stopAudioNotes = useCallback(() => {
+    for (let m = 21; m <= 108; m++) {
+      pianoEngine.stopNote(m);
+    }
+    playedNoteIdsRef.current.clear();
+    stoppedNoteIdsRef.current.clear();
+  }, []);
+
+  const stopAllVoices = useCallback(() => {
+    stopAudioNotes();
+    setActiveNotes([]);
+    setWaitingForPitch(null);
+  }, [stopAudioNotes]);
 
   // Toggle Sustain Pedal
   const handleToggleSustain = useCallback(() => {
@@ -59,14 +82,21 @@ export const App: React.FC = () => {
     });
   }, []);
 
-  // Handle Note Trigger by User (from on-screen keyboard or mic)
+  // Handle Note Trigger by User (from on-screen keyboard, computer keyboard, or mic)
   const handleUserPlayKey = useCallback((midi: number) => {
     userPlayedKeysRef.current.add(midi);
-    setActiveMidiKeys((prev) => Array.from(new Set([...prev, midi])));
+    setUserPlayedPitches(Array.from(userPlayedKeysRef.current));
+
+    setActiveNotes((prev) => {
+      const filtered = prev.filter((n) => n.pitch !== midi);
+      return [...filtered, { pitch: midi, hand: 'user' }];
+    });
 
     // Remove from user played list after brief release
     setTimeout(() => {
       userPlayedKeysRef.current.delete(midi);
+      setUserPlayedPitches(Array.from(userPlayedKeysRef.current));
+      setActiveNotes((prev) => prev.filter((n) => n.pitch !== midi || n.hand !== 'user'));
     }, 450);
   }, []);
 
@@ -95,6 +125,7 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (!isPlaying) {
       lastTimestampRef.current = null;
+      stopAudioNotes();
       return;
     }
 
@@ -112,42 +143,54 @@ export const App: React.FC = () => {
         if (loopA !== null && loopB !== null && loopB > loopA) {
           if (nextTime >= loopB) {
             nextTime = loopA;
-            playedNoteIdsRef.current.clear();
+            stopAudioNotes();
           }
         } else if (nextTime >= currentSong.duration) {
           setIsPlaying(false);
+          stopAudioNotes();
           return currentSong.duration;
         }
 
         // Wait-for-Me Mode Check:
         // If there are notes reaching the strike line that haven't been pressed by the user, pause clock!
         if (waitForMe) {
-          const currentStrikingNotes = currentSong.notes.filter(
+          const upcomingStriking = currentSong.notes.filter(
             (n) =>
               (activeHand === 'both' || n.hand === activeHand) &&
-              n.startTime <= nextTime &&
-              n.startTime >= nextTime - 0.15
+              n.startTime <= nextTime + 0.05 &&
+              n.startTime >= nextTime - 0.2
           );
 
-          if (currentStrikingNotes.length > 0) {
-            const hasUnplayed = currentStrikingNotes.some(
+          if (upcomingStriking.length > 0) {
+            const unplayed = upcomingStriking.find(
               (n) => !userPlayedKeysRef.current.has(n.pitch)
             );
-            if (hasUnplayed) {
-              // Pause right here waiting for user!
+            if (unplayed) {
+              const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+              const name = `${noteNames[unplayed.pitch % 12]}${Math.floor(unplayed.pitch / 12) - 1}`;
+              setWaitingForPitch({
+                pitch: unplayed.pitch,
+                hand: unplayed.hand,
+                name,
+              });
+              // Hold playback right at strike point until user plays note
               return prevTime;
             }
           }
+          setWaitingForPitch(null);
+        } else {
+          setWaitingForPitch(null);
         }
 
-        // Play newly struck notes
-        const currentlyActivePitches: number[] = [];
+        // Play newly struck notes and handle note releases
+        const curActive: ActiveNoteInfo[] = [];
+
         currentSong.notes.forEach((note) => {
           if (activeHand !== 'both' && note.hand !== activeHand) return;
 
-          // Note has struck the line
+          // Note is actively striking the line
           if (note.startTime <= nextTime && note.startTime + note.duration >= nextTime) {
-            currentlyActivePitches.push(note.pitch);
+            curActive.push({ pitch: note.pitch, hand: note.hand });
 
             if (!playedNoteIdsRef.current.has(note.id)) {
               playedNoteIdsRef.current.add(note.id);
@@ -157,16 +200,37 @@ export const App: React.FC = () => {
           }
 
           // Note has ended
-          if (nextTime > note.startTime + note.duration && playedNoteIdsRef.current.has(note.id)) {
-            // Note release handled by engine's natural decay and stopNote
-            pianoEngine.stopNote(note.pitch);
+          if (
+            nextTime > note.startTime + note.duration &&
+            playedNoteIdsRef.current.has(note.id) &&
+            !stoppedNoteIdsRef.current.has(note.id)
+          ) {
+            stoppedNoteIdsRef.current.add(note.id);
+
+            // Only stop if no other active note is currently ringing this exact pitch
+            const hasOtherActive = currentSong.notes.some(
+              (n) =>
+                n.id !== note.id &&
+                (activeHand === 'both' || n.hand === activeHand) &&
+                n.pitch === note.pitch &&
+                n.startTime <= nextTime &&
+                n.startTime + n.duration >= nextTime
+            );
+
+            if (!hasOtherActive) {
+              pianoEngine.stopNote(note.pitch);
+            }
           }
         });
 
         // Merge user pressed keys
-        userPlayedKeysRef.current.forEach((p) => currentlyActivePitches.push(p));
-        setActiveMidiKeys(Array.from(new Set(currentlyActivePitches)));
+        userPlayedKeysRef.current.forEach((pitch) => {
+          if (!curActive.some((a) => a.pitch === pitch)) {
+            curActive.push({ pitch, hand: 'user' });
+          }
+        });
 
+        setActiveNotes(curActive);
         return nextTime;
       });
 
@@ -180,19 +244,18 @@ export const App: React.FC = () => {
         cancelAnimationFrame(animFrameRef.current);
       }
     };
-  }, [isPlaying, tempo, waitForMe, activeHand, currentSong, loopA, loopB]);
+  }, [isPlaying, tempo, waitForMe, activeHand, currentSong, loopA, loopB, stopAudioNotes]);
 
   // Restart Song
   const handleRestart = () => {
     setCurrentTime(0);
-    playedNoteIdsRef.current.clear();
-    setActiveMidiKeys([]);
+    stopAllVoices();
   };
 
   // Seek Timeline
   const handleSeek = (seconds: number) => {
     setCurrentTime(seconds);
-    playedNoteIdsRef.current.clear();
+    stopAllVoices();
   };
 
   // Switch Song
@@ -345,6 +408,34 @@ export const App: React.FC = () => {
 
       {/* Main Viewport Container */}
       <main className="relative flex-1 w-full overflow-hidden flex flex-col">
+        {/* Wait-for-Me Prompt Pill */}
+        {waitingForPitch && (
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 animate-bounce">
+            <div
+              className={`flex items-center gap-2.5 px-4 py-2 rounded-full border shadow-2xl backdrop-blur-xl ${
+                waitingForPitch.hand === 'left'
+                  ? 'bg-purple-950/85 border-purple-400 text-purple-200 shadow-[0_0_24px_rgba(168,85,247,0.6)]'
+                  : 'bg-amber-950/85 border-amber-400 text-amber-200 shadow-[0_0_24px_rgba(245,158,11,0.6)]'
+              }`}
+            >
+              <div
+                className={`w-3 h-3 rounded-full animate-ping ${
+                  waitingForPitch.hand === 'left' ? 'bg-purple-400' : 'bg-amber-400'
+                }`}
+              />
+              <span className="text-xs font-bold tracking-wide">
+                WAITING FOR KEY:
+              </span>
+              <span className="px-2 py-0.5 rounded-md bg-white/20 font-mono font-extrabold text-white text-sm">
+                {waitingForPitch.name}
+              </span>
+              <span className="text-[11px] opacity-80">
+                ({waitingForPitch.hand === 'left' ? 'Left Hand Violet' : 'Right Hand Amber'})
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* Waterfall 3D Viewport */}
         {(viewportMode === 'waterfall3d' || viewportMode === 'dual') && (
           <div
@@ -357,7 +448,7 @@ export const App: React.FC = () => {
               currentTime={currentTime}
               isPlaying={isPlaying}
               activeHand={activeHand}
-              onKeyTrigger={handleUserPlayKey}
+              userPlayedKeys={userPlayedPitches}
             />
           </div>
         )}
@@ -370,7 +461,7 @@ export const App: React.FC = () => {
             } transition-all duration-300 overflow-hidden flex flex-col justify-end`}
           >
             <PlayablePiano2D
-              activeKeys={activeMidiKeys}
+              activeKeys={activeNotes}
               onUserPlayKey={handleUserPlayKey}
               sustainPedal={sustainPedal}
               onToggleSustain={handleToggleSustain}
@@ -471,7 +562,7 @@ export const App: React.FC = () => {
               <li className="flex items-start gap-2">
                 <span className="w-1.5 h-1.5 rounded-full bg-purple-400 mt-1.5 shrink-0" />
                 <span>
-                  <strong>6 Sound Engines:</strong> Concert Grand, Vintage Upright, Neo-Soul Rhodes, DX7 FM, Lo-Fi Tape Piano, Celesta.
+                  <strong>9 Sound Engines & 4-Stage DSP Rack:</strong> Concert Grand, Vintage Upright, Muted Felt, Neo-Soul Rhodes, Classic Wurlitzer, DX7 FM, Lo-Fi Tape, Celesta Bell, and Neon Synth with Reverb, Chorus, Delay, and Tape Drive.
                 </span>
               </li>
               <li className="flex items-start gap-2">

@@ -3,8 +3,13 @@ import { pianoEngine } from '../audio/PianoEngine';
 import { isBlackKey, midiToNoteName } from '../utils/chordDetector';
 import { Music, Disc } from 'lucide-react';
 
+export interface ActiveKeyInfo {
+  pitch: number;
+  hand?: 'left' | 'right' | 'user';
+}
+
 interface PlayablePiano2DProps {
-  activeKeys?: number[]; // Keys currently being played by waterfall or user
+  activeKeys?: number[] | ActiveKeyInfo[];
   onUserPlayKey?: (midi: number) => void;
   sustainPedal: boolean;
   onToggleSustain: () => void;
@@ -21,6 +26,21 @@ export const PlayablePiano2D: React.FC<PlayablePiano2DProps> = ({
   const [pressedKeys, setPressedKeys] = useState<Set<number>>(new Set());
   const [isPointerDown, setIsPointerDown] = useState(false);
   const [showNoteLabels, setShowNoteLabels] = useState(true);
+
+  // Map activeKeys into a lookup map: midi -> hand
+  const activeKeysMap = React.useMemo(() => {
+    const map = new Map<number, 'left' | 'right' | 'user'>();
+    if (Array.isArray(activeKeys)) {
+      activeKeys.forEach((item) => {
+        if (typeof item === 'number') {
+          map.set(item, item < 60 ? 'left' : 'right');
+        } else if (item && typeof item === 'object') {
+          map.set(item.pitch, item.hand || (item.pitch < 60 ? 'left' : 'right'));
+        }
+      });
+    }
+    return map;
+  }, [activeKeys]);
 
   // 88 Piano keys: MIDI 21 (A0) to 108 (C8)
   const MIN_MIDI = 21;
@@ -45,7 +65,6 @@ export const PlayablePiano2D: React.FC<PlayablePiano2DProps> = ({
   useEffect(() => {
     if (keyboardViewportRef.current) {
       const el = keyboardViewportRef.current;
-      // Scroll to approx 45% (Middle C area)
       const scrollTarget = (el.scrollWidth - el.clientWidth) * 0.44;
       el.scrollLeft = scrollTarget;
     }
@@ -75,20 +94,20 @@ export const PlayablePiano2D: React.FC<PlayablePiano2DProps> = ({
   }, [handleScroll]);
 
   // Handle Note Trigger & Release
-  const handleNoteStart = (midi: number) => {
+  const handleNoteStart = useCallback((midi: number) => {
     pianoEngine.playNote(midi, 0.85);
     setPressedKeys((prev) => new Set(prev).add(midi));
     if (onUserPlayKey) onUserPlayKey(midi);
-  };
+  }, [onUserPlayKey]);
 
-  const handleNoteEnd = (midi: number) => {
+  const handleNoteEnd = useCallback((midi: number) => {
     pianoEngine.stopNote(midi);
     setPressedKeys((prev) => {
       const next = new Set(prev);
       next.delete(midi);
       return next;
     });
-  };
+  }, []);
 
   // Keyboard shortcut for sustain pedal (Spacebar)
   useEffect(() => {
@@ -109,6 +128,15 @@ export const PlayablePiano2D: React.FC<PlayablePiano2DProps> = ({
     const clickRatio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     const vp = keyboardViewportRef.current;
     vp.scrollLeft = (vp.scrollWidth - vp.clientWidth) * clickRatio;
+  };
+
+  // Helper for determining key hand color
+  const getKeyHandClass = (midi: number, isActive: boolean) => {
+    if (!isActive) return '';
+    const hand = activeKeysMap.get(midi);
+    if (hand === 'left') return 'lh-active';
+    if (hand === 'right') return 'rh-active';
+    return midi < 60 ? 'lh-active' : 'rh-active';
   };
 
   return (
@@ -161,20 +189,24 @@ export const PlayablePiano2D: React.FC<PlayablePiano2DProps> = ({
           className="mini-keyboard-preview cursor-pointer"
           onClick={handleMiniMapClick}
         >
-          {keysData.map((k) => (
-            <div
-              key={k.midi}
-              className={`flex-1 h-full ${
-                k.isBlack ? 'bg-zinc-800' : 'bg-zinc-200'
-              } ${
-                activeKeys.includes(k.midi) || pressedKeys.has(k.midi)
-                  ? k.midi < 60
-                    ? 'bg-purple-500 !opacity-100 shadow-[0_0_6px_#a855f7]'
-                    : 'bg-amber-400 !opacity-100 shadow-[0_0_6px_#f59e0b]'
-                  : 'opacity-70'
-              }`}
-            />
-          ))}
+          {keysData.map((k) => {
+            const isActive = activeKeysMap.has(k.midi) || pressedKeys.has(k.midi);
+            const hand = activeKeysMap.get(k.midi) || (k.midi < 60 ? 'left' : 'right');
+            return (
+              <div
+                key={k.midi}
+                className={`flex-1 h-full ${
+                  k.isBlack ? 'bg-zinc-800' : 'bg-zinc-200'
+                } ${
+                  isActive
+                    ? hand === 'left'
+                      ? 'bg-purple-500 !opacity-100 shadow-[0_0_6px_#a855f7]'
+                      : 'bg-amber-400 !opacity-100 shadow-[0_0_6px_#f59e0b]'
+                    : 'opacity-70'
+                }`}
+              />
+            );
+          })}
           {/* Draggable Viewport Focus Box */}
           <div ref={miniViewportRef} className="mini-viewport-box" />
         </div>
@@ -196,19 +228,23 @@ export const PlayablePiano2D: React.FC<PlayablePiano2DProps> = ({
       >
         <div className="keyboard-keys-container">
           {whiteKeys.map((wk) => {
-            const isWhiteActive = activeKeys.includes(wk.midi) || pressedKeys.has(wk.midi);
-            const isLh = wk.midi < 60; // Lower than middle C left hand
+            const isWhiteActive = activeKeysMap.has(wk.midi) || pressedKeys.has(wk.midi);
+            const whiteHandClass = getKeyHandClass(wk.midi, isWhiteActive);
 
             // Find if there is a black key directly following this white key
             const nextKey = keysData.find((k) => k.midi === wk.midi + 1);
-            const hasBlackKey = nextKey && nextKey.isBlack;
+            const hasBlackKey = Boolean(nextKey && nextKey.isBlack);
+            const isBlackActive = Boolean(hasBlackKey && nextKey && (activeKeysMap.has(nextKey.midi) || pressedKeys.has(nextKey.midi)));
+            const blackHandClass = hasBlackKey && nextKey ? getKeyHandClass(nextKey.midi, isBlackActive) : '';
 
             return (
               <div key={wk.midi} className="relative flex">
                 {/* White Key */}
                 <div
+                  data-midi={wk.midi}
                   onPointerDown={(e) => {
                     e.preventDefault();
+                    (e.target as HTMLElement)?.releasePointerCapture?.(e.pointerId);
                     handleNoteStart(wk.midi);
                   }}
                   onPointerUp={(e) => {
@@ -227,9 +263,7 @@ export const PlayablePiano2D: React.FC<PlayablePiano2DProps> = ({
                       handleNoteEnd(wk.midi);
                     }
                   }}
-                  className={`white-key ${isWhiteActive ? 'active-key' : ''} ${
-                    isWhiteActive ? (isLh ? 'lh-active' : 'rh-active') : ''
-                  }`}
+                  className={`white-key ${isWhiteActive ? 'active-key' : ''} ${whiteHandClass}`}
                 >
                   <div className="key-led-indicator" />
                   {showNoteLabels && (
@@ -240,12 +274,14 @@ export const PlayablePiano2D: React.FC<PlayablePiano2DProps> = ({
                 </div>
 
                 {/* Overlaid Black Key */}
-                {hasBlackKey && (
+                {hasBlackKey && nextKey && (
                   <div
+                    data-midi={nextKey.midi}
                     style={{ left: 30 }}
                     onPointerDown={(e) => {
                       e.stopPropagation();
                       e.preventDefault();
+                      (e.target as HTMLElement)?.releasePointerCapture?.(e.pointerId);
                       handleNoteStart(nextKey.midi);
                     }}
                     onPointerUp={(e) => {
@@ -267,17 +303,7 @@ export const PlayablePiano2D: React.FC<PlayablePiano2DProps> = ({
                         handleNoteEnd(nextKey.midi);
                       }
                     }}
-                    className={`black-key ${
-                      activeKeys.includes(nextKey.midi) || pressedKeys.has(nextKey.midi)
-                        ? 'active-key'
-                        : ''
-                    } ${
-                      activeKeys.includes(nextKey.midi) || pressedKeys.has(nextKey.midi)
-                        ? nextKey.midi < 60
-                          ? 'lh-active'
-                          : 'rh-active'
-                        : ''
-                    }`}
+                    className={`black-key ${isBlackActive ? 'active-key' : ''} ${blackHandClass}`}
                   >
                     <div className="key-led-indicator" />
                     {showNoteLabels && (

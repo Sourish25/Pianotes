@@ -8,7 +8,7 @@ interface Waterfall3DProps {
   currentTime: number;
   isPlaying: boolean;
   activeHand: HandType;
-  onKeyTrigger?: (midi: number) => void;
+  userPlayedKeys?: number[];
   speed?: number; // visual waterfall speed
 }
 
@@ -25,7 +25,7 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
   notes,
   currentTime,
   activeHand,
-  onKeyTrigger,
+  userPlayedKeys = [],
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [activeChordName, setActiveChordName] = useState<string | null>(null);
@@ -42,6 +42,17 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
   const particlePointsRef = useRef<THREE.Points | null>(null);
   const strikeLineMeshRef = useRef<THREE.Mesh | null>(null);
 
+  // Synchronous refs for 60fps render loop to avoid effect re-allocations
+  const currentTimeRef = useRef(currentTime);
+  const notesRef = useRef(notes);
+  const activeHandRef = useRef(activeHand);
+  const userPlayedKeysRef = useRef(userPlayedKeys);
+
+  // Camera Orbit / Drag Interaction State
+  const cameraAngleRef = useRef({ yaw: 0, pitch: 0 });
+  const isDraggingRef = useRef(false);
+  const dragStartRef = useRef({ x: 0, y: 0 });
+
   // Time & strike constants
   const NOTE_FALL_SPEED = 14; // units per second
   const STRIKE_Z = 0; // Strike line Z position
@@ -50,15 +61,53 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
   const KEY_MAX_MIDI = 108; // C8
 
   // Helper to determine key X coordinate
-  // Mapping 88 keys across a standardized X axis
   const getNoteX = (pitch: number): number => {
-    // Normalizing pitch 21 to 108 into range approx -26 to +26
     return (pitch - 64.5) * 0.62;
   };
 
   const isBlackKey = (pitch: number) => [1, 3, 6, 8, 10].includes(pitch % 12);
 
-  // Initialize Three.js Scene
+  // Filter notes based on active hand
+  const filteredNotes = useMemo(() => {
+    if (activeHand === 'both') return notes;
+    return notes.filter((n) => n.hand === activeHand);
+  }, [notes, activeHand]);
+
+  const filteredNotesRef = useRef(filteredNotes);
+
+  useEffect(() => {
+    currentTimeRef.current = currentTime;
+  }, [currentTime]);
+
+  useEffect(() => {
+    notesRef.current = notes;
+  }, [notes]);
+
+  useEffect(() => {
+    activeHandRef.current = activeHand;
+  }, [activeHand]);
+
+  useEffect(() => {
+    userPlayedKeysRef.current = userPlayedKeys;
+  }, [userPlayedKeys]);
+
+  useEffect(() => {
+    filteredNotesRef.current = filteredNotes;
+  }, [filteredNotes]);
+
+  // Clear note meshes when song or hand filter changes
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    noteMeshesRef.current.forEach((mesh) => {
+      scene.remove(mesh);
+      mesh.geometry.dispose();
+      (mesh.material as THREE.Material).dispose();
+    });
+    noteMeshesRef.current.clear();
+  }, [notes, activeHand]);
+
+  // Initialize Three.js Scene ONCE on mount
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -68,17 +117,19 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x050508);
-    // Subtle atmospheric dark fog
     scene.fog = new THREE.FogExp2(0x050508, 0.015);
     sceneRef.current = scene;
 
     const camera = new THREE.PerspectiveCamera(48, width / height, 0.1, 1000);
-    // Dynamic perspective viewing angle: elevated and looking down towards the strike line
     camera.position.set(0, 22, 28);
     camera.lookAt(0, -1, -12);
     cameraRef.current = camera;
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
+    const renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      alpha: false,
+      powerPreference: 'high-performance',
+    });
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -95,21 +146,21 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
     scene.add(keyLight);
 
     // Violet atmospheric rim light (Left Hand)
-    const violetLight = new THREE.PointLight(0xa855f7, 4.0, 50);
+    const violetLight = new THREE.PointLight(0xa855f7, 4.5, 55);
     violetLight.position.set(-18, 8, 4);
     scene.add(violetLight);
 
     // Amber atmospheric rim light (Right Hand)
-    const amberLight = new THREE.PointLight(0xf59e0b, 4.0, 50);
+    const amberLight = new THREE.PointLight(0xf59e0b, 4.5, 55);
     amberLight.position.set(18, 8, 4);
     scene.add(amberLight);
 
     // Ground reflective piano bed plane
-    const bedGeo = new THREE.PlaneGeometry(70, 80);
+    const bedGeo = new THREE.PlaneGeometry(75, 85);
     const bedMat = new THREE.MeshStandardMaterial({
       color: 0x07080f,
       roughness: 0.25,
-      metalness: 0.8,
+      metalness: 0.85,
     });
     const bedMesh = new THREE.Mesh(bedGeo, bedMat);
     bedMesh.rotation.x = -Math.PI / 2;
@@ -129,7 +180,7 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
     strikeLineMeshRef.current = strikeLine;
 
     // Strike line halo neon glow ribbon
-    const glowGeo = new THREE.PlaneGeometry(58, 2.2);
+    const glowGeo = new THREE.PlaneGeometry(58, 2.4);
     const glowMat = new THREE.MeshBasicMaterial({
       color: 0x9333ea,
       transparent: true,
@@ -148,13 +199,13 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
 
     for (let midi = KEY_MIN_MIDI; midi <= KEY_MAX_MIDI; midi++) {
       const black = isBlackKey(midi);
-      const width = black ? 0.42 : 0.58;
+      const kWidth = black ? 0.42 : 0.58;
       const length = black ? 4.2 : 6.8;
       const height = black ? 0.85 : 0.7;
       const zOffset = black ? -1.2 : 0;
       const yOffset = black ? 0.3 : 0;
 
-      const keyGeo = new THREE.BoxGeometry(width, height, length);
+      const keyGeo = new THREE.BoxGeometry(kWidth, height, length);
       const keyMat = new THREE.MeshStandardMaterial({
         color: black ? 0x141416 : 0xf2f2f4,
         roughness: black ? 0.35 : 0.15,
@@ -180,16 +231,40 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
     particleGeo.setAttribute('color', new THREE.BufferAttribute(particleColors, 3));
 
     const particleMat = new THREE.PointsMaterial({
-      size: 0.5,
+      size: 0.6,
       vertexColors: true,
       transparent: true,
-      opacity: 0.9,
+      opacity: 0.95,
       blending: THREE.AdditiveBlending,
     });
 
     const particlePoints = new THREE.Points(particleGeo, particleMat);
     scene.add(particlePoints);
     particlePointsRef.current = particlePoints;
+
+    // Pointer Drag Rotation Handlers
+    const handlePointerDown = (e: PointerEvent) => {
+      isDraggingRef.current = true;
+      dragStartRef.current = { x: e.clientX, y: e.clientY };
+    };
+
+    const handlePointerMove = (e: PointerEvent) => {
+      if (!isDraggingRef.current) return;
+      const dx = e.clientX - dragStartRef.current.x;
+      const dy = e.clientY - dragStartRef.current.y;
+      dragStartRef.current = { x: e.clientX, y: e.clientY };
+
+      cameraAngleRef.current.yaw += dx * 0.005;
+      cameraAngleRef.current.pitch = Math.max(-0.25, Math.min(0.35, cameraAngleRef.current.pitch + dy * 0.004));
+    };
+
+    const handlePointerUp = () => {
+      isDraggingRef.current = false;
+    };
+
+    container.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
 
     // Window Resize Handler
     const handleResize = () => {
@@ -203,60 +278,40 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
 
     window.addEventListener('resize', handleResize);
 
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      if (rendererRef.current && rendererRef.current.domElement) {
-        container.removeChild(rendererRef.current.domElement);
-        rendererRef.current.dispose();
-      }
-    };
-  }, []);
-
-  // Filter notes based on active hand
-  const filteredNotes = useMemo(() => {
-    if (activeHand === 'both') return notes;
-    return notes.filter((n) => n.hand === activeHand);
-  }, [notes, activeHand]);
-
-  // Main Render & Physics Simulation Loop
-  useEffect(() => {
+    // Continuous 60fps Render Loop
     let animId: number;
+    let lastChordUpdate = 0;
 
-    const animate = () => {
+    const animate = (timestamp: number) => {
       animId = requestAnimationFrame(animate);
 
-      const scene = sceneRef.current;
-      const camera = cameraRef.current;
-      const renderer = rendererRef.current;
-      if (!scene || !camera || !renderer) return;
-
+      const curTime = currentTimeRef.current;
       const activeStrikingPitches: number[] = [];
+      const activePitchHands = new Map<number, 'left' | 'right'>();
 
       // Update Falling Notes
-      filteredNotes.forEach((note) => {
-        const timeUntilStrike = note.startTime - currentTime;
-        const timeSinceEnd = currentTime - (note.startTime + note.duration);
+      const notesToRender = filteredNotesRef.current;
+      notesToRender.forEach((note) => {
+        const timeUntilStrike = note.startTime - curTime;
+        const timeSinceEnd = curTime - (note.startTime + note.duration);
 
-        // Check if note is visible inside our waterfall window
-        if (timeUntilStrike <= VISIBLE_WINDOW && timeSinceEnd <= 0.2) {
+        if (timeUntilStrike <= VISIBLE_WINDOW && timeSinceEnd <= 0.25) {
           let mesh = noteMeshesRef.current.get(note.id);
           const isLeftHand = note.hand === 'left';
-          const noteLength = Math.max(0.6, note.duration * NOTE_FALL_SPEED);
+          const noteLength = Math.max(0.65, note.duration * NOTE_FALL_SPEED);
 
           if (!mesh) {
-            // Note bar 3D pill geometry with rounded edges
             const width = isBlackKey(note.pitch) ? 0.44 : 0.56;
-            const geo = new THREE.BoxGeometry(width, 0.4, 1);
-            // Violet for Left Hand, Warm Amber for Right Hand
+            const geo = new THREE.BoxGeometry(width, 0.42, 1);
             const color = isLeftHand ? 0xa855f7 : 0xf59e0b;
             const emissiveColor = isLeftHand ? 0x9333ea : 0xd97706;
 
             const mat = new THREE.MeshStandardMaterial({
-              color: color,
+              color,
               emissive: emissiveColor,
               emissiveIntensity: 0.65,
               roughness: 0.15,
-              metalness: 0.3,
+              metalness: 0.35,
             });
 
             mesh = new THREE.Mesh(geo, mat);
@@ -264,41 +319,40 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
             noteMeshesRef.current.set(note.id, mesh);
           }
 
-          // Scale length to note duration
           mesh.scale.set(1, 1, noteLength);
-
-          // Position: X mapped to key, Z approaching strike line from negative Z (distance)
           const posX = getNoteX(note.pitch);
           const posZ = STRIKE_Z - timeUntilStrike * NOTE_FALL_SPEED - noteLength / 2;
-          const posY = 0.5;
-
-          mesh.position.set(posX, posY, posZ);
+          mesh.position.set(posX, 0.5, posZ);
 
           // Check if actively striking the line
-          const isStriking = currentTime >= note.startTime && currentTime <= note.startTime + note.duration;
+          const isStriking = curTime >= note.startTime && curTime <= note.startTime + note.duration;
           if (isStriking) {
             activeStrikingPitches.push(note.pitch);
-            if (onKeyTrigger) onKeyTrigger(note.pitch);
+            activePitchHands.set(note.pitch, note.hand);
 
-            // Trigger cosmic particle burst
-            if (Math.random() < 0.35) {
+            // Cosmic particle burst
+            if (Math.random() < 0.4) {
               const sparkColor = isLeftHand ? new THREE.Color(0xd8b4fe) : new THREE.Color(0xfef08a);
               particlesRef.current.push({
-                position: new THREE.Vector3(posX + (Math.random() - 0.5) * 0.4, 0.6, STRIKE_Z + (Math.random() - 0.5) * 0.3),
+                position: new THREE.Vector3(
+                  posX + (Math.random() - 0.5) * 0.4,
+                  0.6,
+                  STRIKE_Z + (Math.random() - 0.5) * 0.3
+                ),
                 velocity: new THREE.Vector3(
-                  (Math.random() - 0.5) * 4.5,
-                  Math.random() * 6.5 + 2,
-                  (Math.random() - 0.5) * 4.5
+                  (Math.random() - 0.5) * 5.0,
+                  Math.random() * 6.5 + 2.5,
+                  (Math.random() - 0.5) * 5.0
                 ),
                 color: sparkColor,
-                size: new THREE.Vector2(0.3, 0.3),
+                size: new THREE.Vector2(0.35, 0.35),
                 life: 0,
                 maxLife: 0.45 + Math.random() * 0.3,
               });
             }
           }
         } else {
-          // Dispose mesh if past window
+          // Dispose mesh outside view window
           const mesh = noteMeshesRef.current.get(note.id);
           if (mesh) {
             scene.remove(mesh);
@@ -309,21 +363,28 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
         }
       });
 
-      // Update 3D Piano Key Depressions and LED status
+      // Include user-played keys in keyboard lighting
+      const userKeys = userPlayedKeysRef.current;
+      userKeys.forEach((p) => {
+        if (!activeStrikingPitches.includes(p)) {
+          activeStrikingPitches.push(p);
+          activePitchHands.set(p, p < 60 ? 'left' : 'right');
+        }
+      });
+
+      // Update 3D Piano Key Depressions and Illumination
       keyMeshesRef.current.forEach((keyMesh, midi) => {
         const isDepressed = activeStrikingPitches.includes(midi);
         const baseY = keyBaseYRef.current.get(midi) || 0;
         const targetY = isDepressed ? baseY - 0.38 : baseY;
 
-        // Smooth spring physics interpolation
-        keyMesh.position.y += (targetY - keyMesh.position.y) * 0.35;
+        keyMesh.position.y += (targetY - keyMesh.position.y) * 0.38;
 
-        // Key illumination when depressed
         const mat = keyMesh.material as THREE.MeshStandardMaterial;
         if (isDepressed) {
-          const isLh = notes.find(n => n.pitch === midi && n.startTime <= currentTime && n.startTime + n.duration >= currentTime)?.hand === 'left';
-          mat.emissive.setHex(isLh ? 0xa855f7 : 0xf59e0b);
-          mat.emissiveIntensity = 0.9;
+          const hand = activePitchHands.get(midi) || (midi < 60 ? 'left' : 'right');
+          mat.emissive.setHex(hand === 'left' ? 0xa855f7 : 0xf59e0b);
+          mat.emissiveIntensity = 0.95;
         } else {
           mat.emissive.setHex(0x000000);
           mat.emissiveIntensity = 0.0;
@@ -338,7 +399,7 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
         const posArray = posAttr.array as Float32Array;
         const colArray = colAttr.array as Float32Array;
 
-        const delta = 0.016; // approx 60fps delta
+        const delta = 0.016;
         let activeCount = 0;
 
         for (let i = particlesRef.current.length - 1; i >= 0; i--) {
@@ -350,9 +411,8 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
             continue;
           }
 
-          // Physics integration: velocity + gravity
           p.position.addScaledVector(p.velocity, delta);
-          p.velocity.y -= 9.8 * delta; // gravity
+          p.velocity.y -= 9.8 * delta;
 
           const idx = activeCount * 3;
           posArray[idx] = p.position.x;
@@ -365,10 +425,9 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
           colArray[idx + 2] = p.color.b * fade;
 
           activeCount++;
-          if (activeCount >= 600) break;
+          if (activeCount >= maxParticles) break;
         }
 
-        // Hide remaining vertices
         for (let i = activeCount * 3; i < posArray.length; i++) {
           posArray[i] = 0;
           colArray[i] = 0;
@@ -378,25 +437,38 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
         colAttr.needsUpdate = true;
       }
 
-      // Dynamic Chord Detection & Active Octave framing
-      if (activeStrikingPitches.length > 0) {
-        const chord = detectChord(activeStrikingPitches);
-        setActiveChordName(chord ? chord.name : null);
-        setActiveNotesList(activeStrikingPitches);
-
-        // Smooth camera subtle dynamic focus towards average active note X
-        const avgX = activeStrikingPitches.reduce((acc, p) => acc + getNoteX(p), 0) / activeStrikingPitches.length;
-        camera.position.x += (avgX * 0.25 - camera.position.x) * 0.04;
-      } else {
-        setActiveChordName(null);
-        setActiveNotesList([]);
-        camera.position.x += (0 - camera.position.x) * 0.04;
+      // Dynamic Chord Detection & Active Octave framing (throttled to ~10Hz)
+      if (timestamp - lastChordUpdate > 90) {
+        lastChordUpdate = timestamp;
+        if (activeStrikingPitches.length > 0) {
+          const chord = detectChord(activeStrikingPitches);
+          setActiveChordName(chord ? chord.name : null);
+          setActiveNotesList(activeStrikingPitches);
+        } else {
+          setActiveChordName(null);
+          setActiveNotesList([]);
+        }
       }
+
+      // Smooth camera position with user drag angle and subtle focus towards active notes
+      const avgX =
+        activeStrikingPitches.length > 0
+          ? activeStrikingPitches.reduce((acc, p) => acc + getNoteX(p), 0) / activeStrikingPitches.length
+          : 0;
+
+      const targetCamX = avgX * 0.2 + cameraAngleRef.current.yaw * 16;
+      const targetCamY = 22 + cameraAngleRef.current.pitch * 14;
+      const targetCamZ = 28;
+
+      camera.position.x += (targetCamX - camera.position.x) * 0.05;
+      camera.position.y += (targetCamY - camera.position.y) * 0.05;
+      camera.position.z += (targetCamZ - camera.position.z) * 0.05;
+      camera.lookAt(targetCamX * 0.25, -1, -12);
 
       // Pulse strike line neon glow
       if (strikeLineMeshRef.current) {
         const mat = strikeLineMeshRef.current.material as THREE.MeshBasicMaterial;
-        mat.opacity = 0.85 + Math.sin(currentTime * 8) * 0.12;
+        mat.opacity = 0.85 + Math.sin(curTime * 8) * 0.12;
       }
 
       renderer.render(scene, camera);
@@ -405,21 +477,36 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
     animId = requestAnimationFrame(animate);
 
     const noteMeshes = noteMeshesRef.current;
+    const domElement = renderer.domElement;
+
     return () => {
       cancelAnimationFrame(animId);
-      // Clean up note meshes on unmount
+      container.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('resize', handleResize);
+
       noteMeshes.forEach((mesh) => {
         mesh.geometry.dispose();
         (mesh.material as THREE.Material).dispose();
       });
       noteMeshes.clear();
+
+      if (domElement && domElement.parentNode === container) {
+        container.removeChild(domElement);
+      }
+      renderer.dispose();
     };
-  }, [filteredNotes, currentTime, onKeyTrigger, notes]);
+  }, []);
 
   return (
     <div className="relative w-full h-full overflow-hidden select-none bg-[#050508]">
-      {/* Three.js 3D WebGL Canvas */}
-      <div ref={containerRef} className="w-full h-full cursor-grab active:cursor-grabbing" />
+      {/* Three.js 3D WebGL Canvas with Drag Orbit */}
+      <div
+        ref={containerRef}
+        className="w-full h-full cursor-grab active:cursor-grabbing touch-none"
+        title="Click and drag to orbit 3D camera angle"
+      />
 
       {/* Floating Chord Badge over Strike Line */}
       {activeChordName && (

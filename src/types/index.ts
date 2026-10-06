@@ -3,10 +3,24 @@ export type HandType = 'left' | 'right' | 'both';
 export type InstrumentType =
   | 'concert-grand'
   | 'upright'
+  | 'felt'
   | 'neo-rhodes'
+  | 'wurlitzer'
   | 'dx7-ep'
   | 'lofi-tape'
-  | 'celesta';
+  | 'celesta'
+  | 'neon-synth';
+
+export interface DSPSettings {
+  reverb: boolean;
+  reverbWet: number;
+  chorus: boolean;
+  chorusDepth: number;
+  delay: boolean;
+  delayFeedback: number;
+  tapeDrive: boolean;
+  driveAmount: number;
+}
 
 export interface NoteEvent {
   id: string;
