@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { HandType } from '../types';
+import type { HandType, PerformanceScore } from '../types';
 import { LiquidGlassCard, LiquidGlassButton } from './LiquidGlass';
 import {
   Play,
@@ -11,6 +11,9 @@ import {
   MicOff,
   Clock,
   Sparkles,
+  Radio,
+  Zap,
+  Trophy,
 } from 'lucide-react';
 
 interface PracticeBarProps {
@@ -36,6 +39,12 @@ interface PracticeBarProps {
   onClearLoop: () => void;
   onOpenInstruments: () => void;
   onOpenIngestion: () => void;
+  isRecording?: boolean;
+  recordingTime?: number;
+  onToggleRecord?: () => void;
+  onOpenMetronomeStudio?: () => void;
+  performanceScore?: PerformanceScore;
+  onOpenVirtuosoSummary?: () => void;
 }
 
 export const PracticeBar: React.FC<PracticeBarProps> = ({
@@ -61,6 +70,12 @@ export const PracticeBar: React.FC<PracticeBarProps> = ({
   onClearLoop,
   onOpenInstruments: _onOpenInstruments,
   onOpenIngestion: _onOpenIngestion,
+  isRecording = false,
+  recordingTime = 0,
+  onToggleRecord,
+  onOpenMetronomeStudio,
+  performanceScore,
+  onOpenVirtuosoSummary,
 }) => {
   const [showTempoPopup, setShowTempoPopup] = useState(false);
 
@@ -104,9 +119,10 @@ export const PracticeBar: React.FC<PracticeBarProps> = ({
             )}
           </div>
 
-          {/* Time Display & Loop Indicators */}
+          {/* Time Display, Scoring HUD & Loop Indicators */}
           <div className="flex items-center justify-between mt-1.5 text-[11px] font-mono text-zinc-400">
             <span>{formatTime(currentTime)}</span>
+
             <div className="flex items-center gap-2">
               {loopA !== null && (
                 <span className="px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 text-[10px]">
@@ -118,7 +134,36 @@ export const PracticeBar: React.FC<PracticeBarProps> = ({
                   Loop B: {formatTime(loopB)}
                 </span>
               )}
+
+              {/* Live Scoring HUD */}
+              {performanceScore && performanceScore.totalNotes > 0 && (
+                <button
+                  onClick={onOpenVirtuosoSummary}
+                  title="View Virtuoso Performance Summary"
+                  className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] border transition-all ${
+                    performanceScore.multiplier >= 4
+                      ? 'bg-amber-500/20 border-amber-400/60 text-amber-200 shadow-[0_0_12px_rgba(245,158,11,0.5)] animate-pulse'
+                      : performanceScore.streak >= 10
+                      ? 'bg-purple-600/25 border-purple-400/50 text-purple-200'
+                      : 'bg-white/5 border-white/10 text-zinc-300 hover:text-white'
+                  }`}
+                >
+                  <Zap className={`w-3 h-3 ${performanceScore.multiplier >= 4 ? 'text-amber-400' : 'text-purple-400'}`} />
+                  <span className="font-bold">{performanceScore.streak}x</span>
+                  {performanceScore.multiplier > 1 && (
+                    <span className="px-1 rounded text-[8px] font-extrabold bg-amber-400 text-black">
+                      {performanceScore.multiplier}X
+                    </span>
+                  )}
+                  <span className="text-zinc-500">|</span>
+                  <span className="font-bold text-amber-300">{performanceScore.score.toLocaleString()}</span>
+                  <span className="text-zinc-500">|</span>
+                  <span className="text-emerald-400 font-bold">{performanceScore.accuracy}%</span>
+                  <Trophy className="w-2.5 h-2.5 text-amber-400" />
+                </button>
+              )}
             </div>
+
             <span>{formatTime(duration)}</span>
           </div>
         </div>
@@ -288,6 +333,38 @@ export const PracticeBar: React.FC<PracticeBarProps> = ({
                 </button>
               )}
             </div>
+
+            {/* Metronome & Pitch Studio Toggle */}
+            {onOpenMetronomeStudio && (
+              <button
+                onClick={onOpenMetronomeStudio}
+                title="Metronome & Concert Pitch Studio"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white/5 border border-white/10 text-zinc-300 hover:text-white hover:bg-white/10 transition-all"
+              >
+                <Radio className="w-3.5 h-3.5 text-purple-400" />
+                <span className="hidden sm:inline">Metronome</span>
+              </button>
+            )}
+
+            {/* Live Performance Recording Button */}
+            {onToggleRecord && (
+              <button
+                onClick={onToggleRecord}
+                title={isRecording ? 'Stop Recording' : 'Record User Performance'}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
+                  isRecording
+                    ? 'bg-rose-500/25 text-rose-200 border-rose-400/80 shadow-[0_0_16px_rgba(244,63,94,0.5)] animate-pulse'
+                    : 'bg-white/5 text-zinc-400 border-white/10 hover:text-white hover:bg-white/10'
+                }`}
+              >
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    isRecording ? 'bg-rose-400 shadow-[0_0_8px_#f43f5e] animate-ping' : 'bg-rose-500'
+                  }`}
+                />
+                <span>{isRecording ? `REC ${formatTime(recordingTime)}` : 'Record'}</span>
+              </button>
+            )}
 
             {/* Mic Listening Toggle */}
             <button

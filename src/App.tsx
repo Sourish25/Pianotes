@@ -1,21 +1,38 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import type { SongData, HandType, InstrumentType, ViewportMode } from './types';
+import type {
+  SongData,
+  HandType,
+  InstrumentType,
+  ViewportMode,
+  PerformanceScore,
+  StrikeFeedback,
+  RecordingSession,
+  NoteEvent,
+} from './types';
 import { SAMPLE_SONGS } from './data/songs';
 import { pianoEngine } from './audio/PianoEngine';
 import { micListener } from './audio/MicrophoneListener';
 import { webMidiManager } from './audio/WebMidiManager';
+import { ScoreKeeper } from './utils/scoringSystem';
+import { downloadMidiFile } from './utils/midiWriter';
 import { LiquidGlassSVGDefs, LiquidGlassButton } from './components/LiquidGlass';
 import { Waterfall3D } from './components/Waterfall3D';
 import { PlayablePiano2D } from './components/PlayablePiano2D';
 import { PracticeBar } from './components/PracticeBar';
 import { IngestionDrawer } from './components/IngestionDrawer';
 import { InstrumentSelector } from './components/InstrumentSelector';
+import { MetronomeStudio } from './components/MetronomeStudio';
+import { VirtuosoSummaryModal } from './components/VirtuosoSummaryModal';
 import {
   Sparkles,
   Music,
   ChevronDown,
   Info,
   Disc,
+  Radio,
+  Play,
+  UploadCloud,
+  X,
 } from 'lucide-react';
 
 export const App: React.FC = () => {
@@ -38,10 +55,41 @@ export const App: React.FC = () => {
   const [isMicActive, setIsMicActive] = useState<boolean>(false);
   const [micLevel, setMicLevel] = useState<number>(0);
 
-  // Drawers
+  // Drawers & Modals
   const [isIngestionOpen, setIsIngestionOpen] = useState<boolean>(false);
   const [isInstrumentOpen, setIsInstrumentOpen] = useState<boolean>(false);
   const [showInfoModal, setShowInfoModal] = useState<boolean>(false);
+  const [showMetronomeStudio, setShowMetronomeStudio] = useState<boolean>(false);
+  const [showVirtuosoSummary, setShowVirtuosoSummary] = useState<boolean>(false);
+
+  // Performance Scoring & Gamification
+  const scoreKeeperRef = useRef<ScoreKeeper>(new ScoreKeeper());
+  const [performanceScore, setPerformanceScore] = useState<PerformanceScore>({
+    score: 0,
+    streak: 0,
+    maxStreak: 0,
+    multiplier: 1,
+    perfectCount: 0,
+    greatCount: 0,
+    earlyCount: 0,
+    lateCount: 0,
+    missCount: 0,
+    totalNotes: 0,
+    accuracy: 100,
+  });
+  const [latestStrike, setLatestStrike] = useState<StrikeFeedback | null>(null);
+  const scoredNoteIdsRef = useRef<Set<string>>(new Set());
+
+  // Performance Recorder State
+  const [isRecording, setIsRecording] = useState<boolean>(false);
+  const [recordingTime, setRecordingTime] = useState<number>(0);
+  const [recordedSession, setRecordedSession] = useState<RecordingSession | null>(null);
+  const [showRecordModal, setShowRecordModal] = useState<boolean>(false);
+  const recordingStartTimeRef = useRef<number | null>(null);
+  const recordedNotesRef = useRef<NoteEvent[]>([]);
+  const activeRecordedPitchesRef = useRef<Map<number, { pitch: number; velocity: number; startTime: number }>>(
+    new Map()
+  );
 
   // Active Keys tracking (currently ringing notes with hand separation)
   interface ActiveNoteInfo {
@@ -61,6 +109,30 @@ export const App: React.FC = () => {
   const lastTimestampRef = useRef<number | null>(null);
   const playedNoteIdsRef = useRef<Set<string>>(new Set());
   const stoppedNoteIdsRef = useRef<Set<string>>(new Set());
+
+  // Recording Timer Effect
+  useEffect(() => {
+    if (!isRecording) return;
+    const interval = setInterval(() => {
+      if (recordingStartTimeRef.current !== null) {
+        const elapsed = (performance.now() - recordingStartTimeRef.current) / 1000;
+        setRecordingTime(elapsed);
+      }
+    }, 100);
+    return () => {
+      clearInterval(interval);
+    };
+  }, [isRecording]);
+
+  // Fade out latest strike feedback badge
+  useEffect(() => {
+    if (latestStrike) {
+      const timer = setTimeout(() => {
+        setLatestStrike((prev) => (prev?.id === latestStrike.id ? null : prev));
+      }, 1200);
+      return () => clearTimeout(timer);
+    }
+  }, [latestStrike]);
 
   // Stop all active synthesizer voices cleanly
   const stopAudioNotes = useCallback(() => {
@@ -92,6 +164,22 @@ export const App: React.FC = () => {
     setUserPlayedPitches(Array.from(userPlayedKeysRef.current));
     setActiveNotes((prev) => prev.filter((n) => n.pitch !== midi || n.hand !== 'user'));
     pianoEngine.stopNote(midi);
+
+    // Finalize note in recorder if active
+    if (recordingStartTimeRef.current !== null && activeRecordedPitchesRef.current.has(midi)) {
+      const item = activeRecordedPitchesRef.current.get(midi)!;
+      const noteEndSec = (performance.now() - recordingStartTimeRef.current) / 1000;
+      const noteDur = Math.max(0.08, noteEndSec - item.startTime);
+      recordedNotesRef.current.push({
+        id: `rec-${recordedNotesRef.current.length + 1}`,
+        pitch: item.pitch,
+        startTime: item.startTime,
+        duration: noteDur,
+        hand: item.pitch < 60 ? 'left' : 'right',
+        velocity: item.velocity,
+      });
+      activeRecordedPitchesRef.current.delete(midi);
+    }
   }, []);
 
   // Handle Note Trigger by User (from on-screen keyboard, computer keyboard, mic, or MIDI)
@@ -104,6 +192,36 @@ export const App: React.FC = () => {
         const filtered = prev.filter((n) => n.pitch !== midi);
         return [...filtered, { pitch: midi, hand: 'user' }];
       });
+
+      // Capture note in recorder if active
+      if (recordingStartTimeRef.current !== null) {
+        const noteStartSec = (performance.now() - recordingStartTimeRef.current) / 1000;
+        activeRecordedPitchesRef.current.set(midi, {
+          pitch: midi,
+          velocity: 0.85,
+          startTime: noteStartSec,
+        });
+      }
+
+      // Real-time Strike Evaluation against active piece
+      const unscoredMatches = currentSong.notes.filter(
+        (n) =>
+          n.pitch === midi &&
+          !scoredNoteIdsRef.current.has(n.id) &&
+          Math.abs(n.startTime - currentTime) <= 0.25
+      );
+
+      if (unscoredMatches.length > 0) {
+        unscoredMatches.sort(
+          (a, b) => Math.abs(a.startTime - currentTime) - Math.abs(b.startTime - currentTime)
+        );
+        const hitNote = unscoredMatches[0];
+        const offsetMs = (currentTime - hitNote.startTime) * 1000;
+        const feedback = scoreKeeperRef.current.registerHit(midi, offsetMs);
+        scoredNoteIdsRef.current.add(hitNote.id);
+        setPerformanceScore(scoreKeeperRef.current.getState());
+        setLatestStrike(feedback);
+      }
 
       // Mark any matching upcoming or current notes as satisfied for Wait-for-Me mode
       currentSong.notes.forEach((note) => {
@@ -123,6 +241,51 @@ export const App: React.FC = () => {
     },
     [currentTime, currentSong, handleUserReleaseKey]
   );
+
+  // Toggle Live Performance Recording
+  const handleToggleRecord = useCallback(() => {
+    if (isRecording) {
+      // Stop recording
+      setIsRecording(false);
+      const endTime = performance.now();
+      const startTime = recordingStartTimeRef.current || endTime;
+      const totalDuration = Math.max(1, (endTime - startTime) / 1000);
+
+      // Finalize any currently held notes
+      activeRecordedPitchesRef.current.forEach((val) => {
+        const dur = Math.max(0.1, totalDuration - val.startTime);
+        recordedNotesRef.current.push({
+          id: `rec-${recordedNotesRef.current.length + 1}`,
+          pitch: val.pitch,
+          startTime: val.startTime,
+          duration: dur,
+          hand: val.pitch < 60 ? 'left' : 'right',
+          velocity: val.velocity,
+        });
+      });
+      activeRecordedPitchesRef.current.clear();
+
+      if (recordedNotesRef.current.length > 0) {
+        const session: RecordingSession = {
+          id: `rec-${Date.now()}`,
+          title: `Performance Take ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`,
+          createdAt: Date.now(),
+          notes: [...recordedNotesRef.current],
+          duration: totalDuration,
+          bpm: currentSong.bpm || 120,
+        };
+        setRecordedSession(session);
+        setShowRecordModal(true);
+      }
+    } else {
+      // Start recording
+      recordedNotesRef.current = [];
+      activeRecordedPitchesRef.current.clear();
+      recordingStartTimeRef.current = performance.now();
+      setRecordingTime(0);
+      setIsRecording(true);
+    }
+  }, [isRecording, currentSong.bpm]);
 
   // Toggle Microphone Pitch Detection
   const handleToggleMic = async () => {
@@ -193,11 +356,11 @@ export const App: React.FC = () => {
         } else if (nextTime >= currentSong.duration) {
           setIsPlaying(false);
           stopAudioNotes();
+          setShowVirtuosoSummary(true);
           return currentSong.duration;
         }
 
         // Wait-for-Me Mode Check:
-        // Pauses playback at the strike line until the user strikes the waiting note!
         if (waitForMe) {
           const eligibleNotes = currentSong.notes.filter(
             (n) =>
@@ -206,7 +369,6 @@ export const App: React.FC = () => {
               !satisfiedNoteIdsRef.current.has(n.id)
           );
 
-          // Check if any eligible notes are currently being pressed by user
           eligibleNotes.forEach((n) => {
             if (userPlayedKeysRef.current.has(n.pitch)) {
               satisfiedNoteIdsRef.current.add(n.id);
@@ -227,13 +389,25 @@ export const App: React.FC = () => {
               hand: unplayed.hand,
               name,
             });
-            // Hold playback right at strike point until user plays note
             return Math.min(prevTime, unplayed.startTime);
           } else {
             setWaitingForPitch(null);
           }
         } else {
           setWaitingForPitch(null);
+        }
+
+        // Missed note check for Performance Scoring
+        if (!waitForMe) {
+          currentSong.notes.forEach((n) => {
+            if (activeHand !== 'both' && n.hand !== activeHand) return;
+            if (nextTime > n.startTime + 0.22 && !scoredNoteIdsRef.current.has(n.id)) {
+              scoredNoteIdsRef.current.add(n.id);
+              const fb = scoreKeeperRef.current.registerMiss(n.pitch);
+              setPerformanceScore(scoreKeeperRef.current.getState());
+              setLatestStrike(fb);
+            }
+          });
         }
 
         // Play newly struck notes and handle note releases
@@ -248,7 +422,6 @@ export const App: React.FC = () => {
 
             if (!playedNoteIdsRef.current.has(note.id)) {
               playedNoteIdsRef.current.add(note.id);
-              // Synthesize piano audio
               pianoEngine.playNote(note.pitch, note.velocity);
             }
           }
@@ -261,7 +434,6 @@ export const App: React.FC = () => {
           ) {
             stoppedNoteIdsRef.current.add(note.id);
 
-            // Only stop if no other active note is currently ringing this exact pitch
             const hasOtherActive = currentSong.notes.some(
               (n) =>
                 n.id !== note.id &&
@@ -304,6 +476,10 @@ export const App: React.FC = () => {
   const handleRestart = () => {
     setCurrentTime(0);
     satisfiedNoteIdsRef.current.clear();
+    scoredNoteIdsRef.current.clear();
+    scoreKeeperRef.current.reset(currentSong.notes.length);
+    setPerformanceScore(scoreKeeperRef.current.getState());
+    setLatestStrike(null);
     stopAllVoices();
   };
 
@@ -312,9 +488,11 @@ export const App: React.FC = () => {
     setCurrentTime(seconds);
     stopAllVoices();
     satisfiedNoteIdsRef.current.clear();
+    scoredNoteIdsRef.current.clear();
     currentSong.notes.forEach((n) => {
       if (n.startTime < seconds) {
         satisfiedNoteIdsRef.current.add(n.id);
+        scoredNoteIdsRef.current.add(n.id);
       }
     });
   };
@@ -322,6 +500,8 @@ export const App: React.FC = () => {
   // Switch Song
   const handleSelectSong = (song: SongData) => {
     setCurrentSong(song);
+    scoreKeeperRef.current.reset(song.notes.length);
+    setPerformanceScore(scoreKeeperRef.current.getState());
     handleRestart();
   };
 
@@ -443,6 +623,16 @@ export const App: React.FC = () => {
             </div>
           )}
 
+          {/* Metronome Studio Button */}
+          <button
+            onClick={() => setShowMetronomeStudio(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white/5 border border-white/10 text-zinc-300 hover:text-white hover:bg-white/10 transition-all"
+            title="Concert Pitch & Metronome Studio"
+          >
+            <Radio className="w-3.5 h-3.5 text-purple-400" />
+            <span className="hidden sm:inline">Pitch & Metronome</span>
+          </button>
+
           {/* Active Song Selector Pill */}
           <LiquidGlassButton
             onClick={() => setIsIngestionOpen(true)}
@@ -477,6 +667,49 @@ export const App: React.FC = () => {
 
       {/* Main Viewport Container */}
       <main className="relative flex-1 w-full overflow-hidden flex flex-col">
+        {/* Real-time Strike Evaluation Floating HUD Banner */}
+        {latestStrike && (
+          <div
+            key={latestStrike.id}
+            className="absolute top-16 left-1/2 -translate-x-1/2 z-50 pointer-events-none animate-in fade-in zoom-in-75 duration-150"
+          >
+            <div
+              className={`px-5 py-2 rounded-2xl border shadow-2xl flex flex-col items-center justify-center backdrop-blur-xl ${
+                latestStrike.rating === 'PERFECT'
+                  ? 'bg-cyan-950/85 border-cyan-400 text-cyan-200 shadow-[0_0_30px_rgba(6,182,212,0.7)]'
+                  : latestStrike.rating === 'GREAT'
+                  ? 'bg-emerald-950/85 border-emerald-400 text-emerald-200 shadow-[0_0_24px_rgba(16,185,129,0.6)]'
+                  : latestStrike.rating === 'EARLY'
+                  ? 'bg-amber-950/85 border-amber-400 text-amber-200 shadow-[0_0_20px_rgba(245,158,11,0.5)]'
+                  : latestStrike.rating === 'LATE'
+                  ? 'bg-orange-950/85 border-orange-400 text-orange-200 shadow-[0_0_20px_rgba(249,115,22,0.5)]'
+                  : 'bg-red-950/85 border-red-500 text-red-200 shadow-[0_0_20px_rgba(239,68,68,0.5)]'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-black tracking-widest uppercase">
+                  {latestStrike.rating === 'PERFECT' ? '★ PERFECT ★' : latestStrike.rating}
+                </span>
+                {latestStrike.points > 0 && (
+                  <span className="font-mono text-xs font-bold text-amber-300">
+                    +{latestStrike.points}
+                  </span>
+                )}
+              </div>
+              {latestStrike.combo >= 2 && (
+                <div className="text-[10px] font-extrabold tracking-wider text-white flex items-center gap-1 mt-0.5">
+                  <span>COMBO {latestStrike.combo}x</span>
+                  {latestStrike.multiplier > 1 && (
+                    <span className="px-1 rounded bg-amber-400 text-black text-[9px] font-black">
+                      {latestStrike.multiplier}X MULTIPLIER
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Wait-for-Me Prompt Pill */}
         {waitingForPitch && (
           <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 animate-bounce">
@@ -567,6 +800,12 @@ export const App: React.FC = () => {
         }}
         onOpenInstruments={() => setIsInstrumentOpen(true)}
         onOpenIngestion={() => setIsIngestionOpen(true)}
+        isRecording={isRecording}
+        recordingTime={recordingTime}
+        onToggleRecord={handleToggleRecord}
+        onOpenMetronomeStudio={() => setShowMetronomeStudio(true)}
+        performanceScore={performanceScore}
+        onOpenVirtuosoSummary={() => setShowVirtuosoSummary(true)}
       />
 
       {/* Ingestion & Song Library Drawer */}
@@ -585,6 +824,108 @@ export const App: React.FC = () => {
         onSelectInstrument={setInstrument}
       />
 
+      {/* Concert Pitch & Metronome Studio */}
+      <MetronomeStudio
+        isOpen={showMetronomeStudio}
+        onClose={() => setShowMetronomeStudio(false)}
+        currentSongBpm={currentSong.bpm}
+      />
+
+      {/* Virtuoso Performance Summary Modal */}
+      <VirtuosoSummaryModal
+        isOpen={showVirtuosoSummary}
+        onClose={() => setShowVirtuosoSummary(false)}
+        score={performanceScore}
+        songTitle={currentSong.title}
+        composer={currentSong.composer}
+        onReplay={handleRestart}
+        onOpenLibrary={() => setIsIngestionOpen(true)}
+        onExportMidi={() => downloadMidiFile(currentSong.notes, currentSong.bpm, currentSong.title)}
+      />
+
+      {/* Recorded Take Summary & MIDI Export Modal */}
+      {showRecordModal && recordedSession && (
+        <div
+          className="liquid-sheet-overlay !z-50"
+          onClick={() => setShowRecordModal(false)}
+        >
+          <div
+            className="liquid-sheet"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: '520px' }}
+          >
+            <div className="sheet-handle" onClick={() => setShowRecordModal(false)} />
+            <div className="flex items-center justify-between pb-3 mb-4 border-b border-white/10">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-rose-500/20 border border-rose-400/40 flex items-center justify-center text-rose-300">
+                  <Disc className="w-4 h-4 animate-spin" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-white tracking-tight">Performance Recorded</h2>
+                  <p className="text-[11px] text-zinc-400">Captured with microsecond timestamp fidelity</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowRecordModal(false)}
+                className="p-1.5 rounded-full text-zinc-400 hover:text-white bg-white/5 border border-white/10 hover:bg-white/10"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3 mb-5">
+              <div className="p-3 rounded-xl bg-white/5 border border-white/10 text-center">
+                <span className="text-[10px] text-zinc-400 uppercase font-semibold block">Notes</span>
+                <span className="text-xl font-bold font-mono text-white">{recordedSession.notes.length}</span>
+              </div>
+              <div className="p-3 rounded-xl bg-white/5 border border-white/10 text-center">
+                <span className="text-[10px] text-zinc-400 uppercase font-semibold block">Duration</span>
+                <span className="text-xl font-bold font-mono text-purple-300">{Math.round(recordedSession.duration)}s</span>
+              </div>
+              <div className="p-3 rounded-xl bg-white/5 border border-white/10 text-center">
+                <span className="text-[10px] text-zinc-400 uppercase font-semibold block">Tempo</span>
+                <span className="text-xl font-bold font-mono text-amber-300">{recordedSession.bpm} BPM</span>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <LiquidGlassButton
+                onClick={() => {
+                  const recordedSong: SongData = {
+                    id: recordedSession.id,
+                    title: recordedSession.title,
+                    composer: 'Live User Recording',
+                    bpm: recordedSession.bpm,
+                    duration: recordedSession.duration,
+                    keySignature: 'User Session',
+                    difficulty: 'Intermediate',
+                    category: 'Cinematic',
+                    description: `Live recorded piano take with ${recordedSession.notes.length} notes.`,
+                    notes: recordedSession.notes,
+                  };
+                  handleSelectSong(recordedSong);
+                  setShowRecordModal(false);
+                }}
+                className="w-full flex items-center justify-center gap-2 !py-2.5 text-xs text-white"
+              >
+                <Play className="w-4 h-4 fill-current ml-0.5" />
+                <span>Play in 3D Waterfall & 2D Piano</span>
+              </LiquidGlassButton>
+
+              <button
+                onClick={() => {
+                  downloadMidiFile(recordedSession.notes, recordedSession.bpm, recordedSession.title);
+                }}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-purple-600/30 hover:bg-purple-600/40 border border-purple-400/50 text-purple-200 text-xs font-semibold shadow-sm transition-all"
+              >
+                <UploadCloud className="w-4 h-4 rotate-180" />
+                <span>Download Standard MIDI (.mid)</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Architectural & Feature Info Modal */}
       {showInfoModal && (
         <div
@@ -599,7 +940,7 @@ export const App: React.FC = () => {
             <div className="sheet-handle" onClick={() => setShowInfoModal(false)} />
             <h3 className="text-lg font-bold text-white mb-2 flex items-center gap-2">
               <Sparkles className="w-5 h-5 text-amber-400" />
-              <span>Apple Liquid Glass Piano Architecture</span>
+              <span>Apple Liquid Glass Piano Architecture (v1.3.0)</span>
             </h3>
             <p className="text-xs text-zinc-300 leading-relaxed">
               This high-performance web demo delivers the 1:1 Apple Liquid Glass design language and Android piano experience:
@@ -608,37 +949,25 @@ export const App: React.FC = () => {
               <li className="flex items-start gap-2">
                 <span className="w-1.5 h-1.5 rounded-full bg-purple-400 mt-1.5 shrink-0" />
                 <span>
-                  <strong>Multi-pass Refraction & Chromatic Aberration:</strong> SVG feDisplacementMap + RGB channel offset matrices generating genuine rainbow prism dispersion along beveled glass borders.
+                  <strong>Interactive Performance Scoring:</strong> Real-time note strike evaluation (PERFECT ±30ms, GREAT ±70ms, EARLY, LATE, MISS), streak combo multipliers up to 8x with cosmic aura, and Virtuoso Performance Summary modal.
                 </span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-1.5 shrink-0" />
                 <span>
-                  <strong>Interactive Gel-Bending Physics:</strong> Buttons and sheets indent and recoil elastically using Hooke's law spring dynamics on pointer tap or drag.
+                  <strong>Live Performance Recorder & Standard MIDI Export:</strong> One-tap recording capturing microsecond note timing and velocity, instantaneous playback in 3D/2D views, and direct SMF binary .mid download.
                 </span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="w-1.5 h-1.5 rounded-full bg-purple-400 mt-1.5 shrink-0" />
                 <span>
-                  <strong>Specular Sheen & Saturation Boost:</strong> 220% saturation backdrop filter + dynamic incident pointer light angle tracking.
+                  <strong>Concert Pitch & Metronome Studio:</strong> Micro-tuning master selector (A440Hz standard, A432Hz healing, A442Hz orchestral, A415Hz baroque) with acoustic pendulum click generator and time signature accents (4/4, 3/4, 6/8).
                 </span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-1.5 shrink-0" />
                 <span>
-                  <strong>Dual Viewports & 3D Waterfall:</strong> Left hand (Violet) and Right Hand (Amber) separation, 3D key depressions, cosmic strike sparks, active octave focus, and floating chord badges.
-                </span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-purple-400 mt-1.5 shrink-0" />
-                <span>
-                  <strong>9 Sound Engines & 4-Stage DSP Rack:</strong> Concert Grand, Vintage Upright, Muted Felt, Neo-Soul Rhodes, Classic Wurlitzer, DX7 FM, Lo-Fi Tape, Celesta Bell, and Neon Synth with Reverb, Chorus, Delay, and Tape Drive.
-                </span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-1.5 shrink-0" />
-                <span>
-                  <strong>Real Acoustic Mic Pitch Detection:</strong> Autocorrelation pitch detector allows playing an actual piano in front of your device!
+                  <strong>Expanded Repertoire & Search Studio:</strong> Built-in masterpieces across Classical, Cinematic, Neo-Soul, Lo-Fi, and Anime with real-time text query and category filtering.
                 </span>
               </li>
             </ul>

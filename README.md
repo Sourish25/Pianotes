@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Version: 1.2.0](https://img.shields.io/badge/Release-v1.2.0-blue.svg?style=for-the-badge)
+![Version: 1.3.0](https://img.shields.io/badge/Release-v1.3.0-blue.svg?style=for-the-badge)
 ![Android](https://img.shields.io/badge/Android_APK-3DDC84?style=for-the-badge&logo=android&logoColor=white)
 ![License: MIT](https://img.shields.io/badge/License-MIT-purple.svg?style=for-the-badge)
 ![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)
@@ -15,7 +15,7 @@
 
 <p align="center">
   <b>A 1:1 Apple Liquid Glass 3D Piano & Falling Note Synthesizer for the Web and Mobile.</b><br>
-  Dual viewports, physical key tilting, Web MIDI hardware support, real-time IRL acoustic microphone pitch detection, 9-voice sound engine, 4-stage DSP effects rack, native Standard MIDI file ingestion, and Demucs / ByteDance AMT neural transcription studio.
+  Dual viewports, physical key tilting, interactive performance scoring & combo streaks, live performance recorder, standard MIDI (.mid) export, concert pitch micro-tuning (A440, A432, A442, A415 Baroque), audio metronome with visual glass pendulum, Web MIDI hardware support, real-time IRL acoustic microphone pitch detection, 9-voice sound engine, 4-stage DSP effects rack, and Demucs / ByteDance AMT neural transcription studio.
 </p>
 
 </div>
@@ -30,9 +30,9 @@
 
 ## 🌟 Overview
 
-**Pianotes** is an open-source piano application built to redefine music learning and performance on modern screens. Inspired by classic falling-note synthesizers and infused with Apple’s state-of-the-art **Liquid Glass** aesthetic, Pianotes combines 3D perspective graphics, tactile physical spring dynamics, studio-grade Web Audio synthesis, and intelligent practice modes.
+**Pianotes** is an open-source piano application built to redefine music learning and performance on modern screens. Inspired by classic falling-note synthesizers and infused with Apple’s state-of-the-art **Liquid Glass** aesthetic, Pianotes combines 3D perspective graphics, tactile physical spring dynamics, studio-grade Web Audio synthesis, interactive rhythm game gamification, live performance recording with standard MIDI export, and intelligent practice modes.
 
-Whether you want to learn classical masterpieces with the intelligent **"Wait-for-Me"** mode, jam on the **88-key touch keyboard**, listen to your **real acoustic piano** via your microphone, or transcribe piano pieces from **Instagram Reels, TikToks, and YouTube Shorts**, Pianotes delivers an uncompromised experience.
+Whether you want to learn classical masterpieces with the intelligent **"Wait-for-Me"** mode, evaluate your strike accuracy with real-time scoring, record and download your performances as standard `.mid` files, micro-tune your instrument to healing A432Hz or Baroque A415Hz, jam on the **88-key touch keyboard**, listen to your **real acoustic piano** via your microphone, or transcribe piano pieces from **Instagram Reels, TikToks, and YouTube Shorts**, Pianotes delivers an uncompromised experience.
 
 ---
 
@@ -72,7 +72,66 @@ Whether you want to learn classical masterpieces with the intelligent **"Wait-fo
 
 ---
 
-### 3. Diverse 9-Engine Sound Synthesizer & 4-Stage DSP Rack
+### 3. Interactive Performance Scoring & Gamification (v1.3.0)
+- **Real-Time Note Strike Precision Evaluation**:
+  - Compares user key strikes from touch, keyboard, MIDI controller, or acoustic microphone against song notes in real-time.
+  - **PERFECT**: Strike timing within $\pm 30\text{ ms}$ ($+100\text{ base points} \times \text{multiplier}$)
+  - **GREAT**: Strike timing within $\pm 70\text{ ms}$ ($+75\text{ base points} \times \text{multiplier}$)
+  - **EARLY**: Struck between $-71\text{ ms}$ and $-150\text{ ms}$ ahead ($+40\text{ base points}$)
+  - **LATE**: Struck between $+71\text{ ms}$ and $+200\text{ ms}$ behind ($+40\text{ base points}$)
+  - **MISS**: Note passed by $> 200\text{ ms}$ without being struck (breaks streak back to $1\times$)
+- **Live Streak Multiplier & Cosmic Aura**:
+  - $1\times$ Multiplier: $0\text{--}9$ streak hits
+  - $2\times$ Multiplier: $10\text{--}24$ streak hits
+  - $4\times$ Multiplier: $25\text{--}49$ streak hits
+  - $8\times$ Multiplier: $50+$ streak hits with glowing cosmic particle aura
+- **End-of-Song "Virtuoso Performance Summary" Modal**:
+  - Rendered in liquid glass with animated 5-star rating (Virtuoso 5★, Maestro 4★, Pianist 3★, Apprentice 2★, Novice 1★).
+  - Accuracy percentage circular ring, final score, max streak combo, and full precision breakdown.
+  - Celebratory confetti particle explosion on $4+$ star performances.
+  - Replay and instant MIDI export shortcuts.
+
+---
+
+### 4. Live Performance Recorder & Standard MIDI Export (v1.3.0)
+- **One-Tap Recording**: One-touch toggle on the practice bar with glowing red recording pulse and active timer.
+- **Microsecond Timestamp Fidelity**: Captures every user-played key press and release timing using `performance.now()`, calculating note duration, pitch, and velocity.
+- **Instant Playback**: Loads recorded takes straight into the 3D falling-note waterfall and 2D playable piano.
+- **Direct Standard MIDI (.mid) Download**: Generates valid Standard MIDI files (SMF Format 0, 480 PPQ, tempo meta-events, variable-length delta ticks) ready for DAWs (Logic, Ableton, FL Studio, GarageBand).
+
+---
+
+### 5. Concert Pitch & Metronome Studio (v1.3.0)
+- **Micro-Tuning Master Pitch Selector**:
+  - **A440 Hz**: Modern Standard ISO 16
+  - **A432 Hz**: Sacred / Verdi Healing Pitch
+  - **A442 Hz**: European Orchestral Symphony Pitch
+  - **A415 Hz**: Baroque Chamber Temperament ($\approx 1\text{ semitone flat}$)
+  - Instantaneous 88-key real-time retuning across all 9 synthesizer engines.
+- **Acoustic Metronome & Visual Glass Pendulum**:
+  - High-precision Web Audio lookahead scheduling with zero timing jitter.
+  - Physically animated glass pendulum swaying in sync with current BPM.
+  - Beat accenting for $4/4$, $3/4$ (waltz), and $6/8$ time signatures.
+  - Smooth volume slider control.
+
+---
+
+### 6. Expanded Song Repertoire with Search & Categories (v1.3.0)
+- **Expanded Masterpieces**:
+  - *Nocturne Op. 9 No. 2* — Frédéric Chopin (Eb Major, Virtuoso, Classical)
+  - *Für Elise* — Ludwig van Beethoven (A minor, Intermediate, Classical)
+  - *Clair de Lune* — Claude Debussy (Db Major, Intermediate, Classical)
+  - *Canon in D* — Johann Pachelbel (D Major, Beginner, Classical)
+  - *River Flows In You* — Yiruma (A Major, Intermediate, Neo-Soul)
+  - *Cornfield Chase (Interstellar)* — Hans Zimmer (A minor, Intermediate, Cinematic)
+  - *Merry-Go-Round of Life* — Joe Hisaishi (G minor, Intermediate, Anime)
+  - *Gymnopédie No. 1* — Erik Satie (D Major, Beginner, Classical)
+  - *Midnight Cassette Groove* — Pianotes Lab (C minor, Beginner, Lo-Fi)
+- **Search Bar & Category Pills**: Search by piece title, composer, key, or difficulty, with category filtering (All, Classical, Cinematic, Anime, Neo-Soul, Lo-Fi).
+
+---
+
+### 7. Diverse 9-Engine Sound Synthesizer & 4-Stage DSP Rack
 <div align="center">
   <img src="docs/screenshots/dsp-studio.jpg" alt="Pianotes DSP Effects Rack and Sound Studio" width="100%" style="border-radius: 16px; margin: 16px 0;" />
 </div>
@@ -99,7 +158,7 @@ Pianotes features an extensive Web Audio API synthesizer library with **9 distin
 
 ---
 
-### 4. Interactive Practice, "Wait-for-Me" Mode & Web MIDI
+### 8. Interactive Practice, "Wait-for-Me" Mode & Web MIDI
 - **Intelligent "Wait-for-Me" Mode**: When enabled, song playback automatically pauses right at the strike line whenever a note arrives until you strike the correct piano key, with persistent note satisfaction tracking preventing time deadlocks.
 - **Hardware Web MIDI API Integration**:
   - Connect your physical digital piano (USB / Bluetooth) with zero configuration.
@@ -115,7 +174,7 @@ Pianotes features an extensive Web Audio API synthesizer library with **9 distin
 
 ---
 
-### 5. Social Reel Ingestion & Transcription Pipeline
+### 9. Social Reel Ingestion & Transcription Pipeline
 - **Social Media Parser**: Paste links from **Instagram Reels**, **TikTok**, or **YouTube Shorts**.
 - **Native Standard MIDI File Ingestion**:
   - Pure TypeScript zero-dependency binary SMF parser (`parseMidiFile`) reading `.mid` and `.midi` files directly.

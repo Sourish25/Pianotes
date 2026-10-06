@@ -28,6 +28,7 @@ export class PianoAudioEngine {
   };
 
   private currentInstrument: InstrumentType = 'concert-grand';
+  private concertPitchA4: number = 440;
   private sustainPedal = false;
   private activeVoices: Map<number, { stop: () => void; isSustained: boolean }> = new Map();
 
@@ -252,8 +253,16 @@ export class PianoAudioEngine {
     return this.sustainPedal;
   }
 
+  public setConcertPitch(pitch: number) {
+    this.concertPitchA4 = pitch;
+  }
+
+  public getConcertPitch(): number {
+    return this.concertPitchA4;
+  }
+
   public midiToFrequency(midi: number): number {
-    return 440 * Math.pow(2, (midi - 69) / 12);
+    return this.concertPitchA4 * Math.pow(2, (midi - 69) / 12);
   }
 
   public playNote(midi: number, velocity: number = 0.8) {

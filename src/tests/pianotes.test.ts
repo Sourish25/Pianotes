@@ -2,6 +2,14 @@ import { describe, it, expect } from 'vitest';
 import { detectChord, midiToNoteName, isBlackKey } from '../utils/chordDetector';
 import { SAMPLE_SONGS } from '../data/songs';
 import { pianoEngine } from '../audio/PianoEngine';
+import {
+  evaluateStrikeTiming,
+  getComboMultiplier,
+  calculateStarRating,
+  ScoreKeeper,
+} from '../utils/scoringSystem';
+import { encodeVarInt, generateMidiBinary } from '../utils/midiWriter';
+import { parseMidiFile } from '../utils/midiParser';
 
 describe('Chord Detection & Musical Theory', () => {
   it('correctly identifies single notes', () => {
@@ -345,6 +353,274 @@ describe('Octave Navigation & Clamping', () => {
     // Clamping test
     expect(octToMidi(0)).toBe(24);
     expect(octToMidi(9)).toBe(96);
+  });
+});
+
+describe('Interactive Performance Scoring & Gamification (v1.3.0)', () => {
+  it('accurately evaluates note strike timing precision tiers', () => {
+    // PERFECT (within ±30ms)
+    expect(evaluateStrikeTiming(0)).toBe('PERFECT');
+    expect(evaluateStrikeTiming(28)).toBe('PERFECT');
+    expect(evaluateStrikeTiming(-28)).toBe('PERFECT');
+    expect(evaluateStrikeTiming(30)).toBe('PERFECT');
+    expect(evaluateStrikeTiming(-30)).toBe('PERFECT');
+
+    // GREAT (within ±70ms)
+    expect(evaluateStrikeTiming(35)).toBe('GREAT');
+    expect(evaluateStrikeTiming(-35)).toBe('GREAT');
+    expect(evaluateStrikeTiming(70)).toBe('GREAT');
+    expect(evaluateStrikeTiming(-70)).toBe('GREAT');
+
+    // EARLY (between -71ms and -150ms)
+    expect(evaluateStrikeTiming(-71)).toBe('EARLY');
+    expect(evaluateStrikeTiming(-120)).toBe('EARLY');
+    expect(evaluateStrikeTiming(-150)).toBe('EARLY');
+
+    // LATE (between +71ms and +200ms)
+    expect(evaluateStrikeTiming(71)).toBe('LATE');
+    expect(evaluateStrikeTiming(140)).toBe('LATE');
+    expect(evaluateStrikeTiming(200)).toBe('LATE');
+
+    // MISS (outside acceptable strike envelopes)
+    expect(evaluateStrikeTiming(250)).toBe('MISS');
+    expect(evaluateStrikeTiming(-180)).toBe('MISS');
+    expect(evaluateStrikeTiming(1000)).toBe('MISS');
+  });
+
+  it('applies cosmic combo streak multipliers at 10x, 25x, and 50x thresholds', () => {
+    expect(getComboMultiplier(0)).toBe(1);
+    expect(getComboMultiplier(9)).toBe(1);
+    expect(getComboMultiplier(10)).toBe(2);
+    expect(getComboMultiplier(24)).toBe(2);
+    expect(getComboMultiplier(25)).toBe(4);
+    expect(getComboMultiplier(49)).toBe(4);
+    expect(getComboMultiplier(50)).toBe(8);
+    expect(getComboMultiplier(120)).toBe(8);
+  });
+
+  it('accumulates score points, tracks streaks, and breaks combo on MISS', () => {
+    const keeper = new ScoreKeeper();
+    keeper.reset(10);
+
+    // Hit 1: PERFECT (+100 * 1 = 100)
+    let fb = keeper.registerHit(60, 5);
+    expect(fb.rating).toBe('PERFECT');
+    expect(fb.points).toBe(100);
+    expect(fb.combo).toBe(1);
+    expect(keeper.getState().score).toBe(100);
+
+    // Hit 2: GREAT (+75 * 1 = 75 -> total 175)
+    fb = keeper.registerHit(64, 45);
+    expect(fb.rating).toBe('GREAT');
+    expect(fb.points).toBe(75);
+    expect(fb.combo).toBe(2);
+    expect(keeper.getState().score).toBe(175);
+
+    // Simulate streak up to 10
+    for (let i = 3; i <= 9; i++) {
+      keeper.registerHit(60, 10);
+    }
+    // 10th hit reaches 2x multiplier!
+    fb = keeper.registerHit(67, 10);
+    expect(fb.combo).toBe(10);
+    expect(fb.multiplier).toBe(2);
+    expect(fb.points).toBe(200); // 100 * 2x
+
+    // MISS resets streak and multiplier back to 1x
+    const missFb = keeper.registerMiss(72);
+    expect(missFb.rating).toBe('MISS');
+    expect(missFb.combo).toBe(0);
+    expect(missFb.multiplier).toBe(1);
+    expect(keeper.getState().streak).toBe(0);
+    expect(keeper.getState().multiplier).toBe(1);
+    expect(keeper.getState().missCount).toBe(1);
+  });
+
+  it('computes weighted accuracy and assigns Virtuoso star ratings', () => {
+    // 100% accuracy = 5 stars Virtuoso
+    expect(calculateStarRating(100).stars).toBe(5);
+    expect(calculateStarRating(96).rank).toBe('Virtuoso');
+
+    // 85-94% = 4 stars Maestro
+    expect(calculateStarRating(90).stars).toBe(4);
+    expect(calculateStarRating(85).rank).toBe('Maestro');
+
+    // 70-84% = 3 stars Pianist
+    expect(calculateStarRating(75).stars).toBe(3);
+    expect(calculateStarRating(70).rank).toBe('Pianist');
+
+    // 50-69% = 2 stars Apprentice
+    expect(calculateStarRating(60).stars).toBe(2);
+    expect(calculateStarRating(50).rank).toBe('Apprentice');
+
+    // <50% = 1 star Novice
+    expect(calculateStarRating(35).stars).toBe(1);
+    expect(calculateStarRating(10).rank).toBe('Novice');
+  });
+});
+
+describe('Live Performance Recorder & Standard MIDI Export (v1.3.0)', () => {
+  it('correctly encodes Variable-Length Quantities (VLQ) for MIDI delta ticks', () => {
+    expect(encodeVarInt(0)).toEqual([0x00]);
+    expect(encodeVarInt(64)).toEqual([0x40]);
+    expect(encodeVarInt(127)).toEqual([0x7f]);
+    expect(encodeVarInt(128)).toEqual([0x81, 0x00]);
+    expect(encodeVarInt(480)).toEqual([0x83, 0x60]); // 480 ticks/beat
+    expect(encodeVarInt(16383)).toEqual([0xff, 0x7f]);
+  });
+
+  it('generates a valid Standard MIDI SMF Format 0 binary file with header and track chunks', () => {
+    const sampleNotes = [
+      { id: 'n1', pitch: 60, startTime: 0.0, duration: 0.5, hand: 'right' as const, velocity: 0.8 },
+      { id: 'n2', pitch: 64, startTime: 0.5, duration: 0.5, hand: 'right' as const, velocity: 0.75 },
+      { id: 'n3', pitch: 48, startTime: 0.0, duration: 1.0, hand: 'left' as const, velocity: 0.85 },
+    ];
+
+    const binary = generateMidiBinary(sampleNotes, 120, 'My Performance Take');
+    expect(binary.byteLength).toBeGreaterThan(30);
+
+    // MThd Header verification
+    expect(String.fromCharCode(binary[0], binary[1], binary[2], binary[3])).toBe('MThd');
+    const view = new DataView(binary.buffer);
+    expect(view.getUint32(4)).toBe(6); // length 6
+    expect(view.getUint16(8)).toBe(0); // Format 0
+    expect(view.getUint16(10)).toBe(1); // 1 track
+    expect(view.getUint16(12)).toBe(480); // 480 PPQ
+
+    // MTrk Track verification
+    expect(String.fromCharCode(binary[14], binary[15], binary[16], binary[17])).toBe('MTrk');
+  });
+
+  it('round-trips generated MIDI binary through parseMidiFile without data loss', () => {
+    const originalNotes = [
+      { id: 'r1', pitch: 60, startTime: 0.0, duration: 0.5, hand: 'right' as const, velocity: 0.8 },
+      { id: 'r2', pitch: 67, startTime: 0.5, duration: 0.5, hand: 'right' as const, velocity: 0.9 },
+      { id: 'r3', pitch: 45, startTime: 0.0, duration: 1.0, hand: 'left' as const, velocity: 0.7 },
+    ];
+
+    const binary = generateMidiBinary(originalNotes, 120, 'Studio Take 1');
+    const parsed = parseMidiFile(binary.buffer as ArrayBuffer, 'Studio Take 1.mid');
+
+    expect(parsed.title).toBe('Studio Take 1');
+    expect(parsed.notes.length).toBe(3);
+
+    // Verify all pitches preserved
+    const pitches = parsed.notes.map((n) => n.pitch).sort();
+    expect(pitches).toEqual([45, 60, 67]);
+
+    // Verify hand separation
+    const leftNote = parsed.notes.find((n) => n.pitch === 45);
+    expect(leftNote?.hand).toBe('left');
+    const rightNote = parsed.notes.find((n) => n.pitch === 60);
+    expect(rightNote?.hand).toBe('right');
+  });
+});
+
+describe('Concert Pitch Micro-Tuning Studio (v1.3.0)', () => {
+  it('accurately tunes all 88 keys to A440, A432, A442, and A415 Baroque temperaments', () => {
+    // 1. A440 Modern Standard
+    pianoEngine.setConcertPitch(440);
+    expect(pianoEngine.getConcertPitch()).toBe(440);
+    expect(pianoEngine.midiToFrequency(69)).toBeCloseTo(440.0, 2);
+    expect(pianoEngine.midiToFrequency(57)).toBeCloseTo(220.0, 2); // A3
+
+    // 2. A432 Healing / Sacred Verdi Pitch
+    pianoEngine.setConcertPitch(432);
+    expect(pianoEngine.getConcertPitch()).toBe(432);
+    expect(pianoEngine.midiToFrequency(69)).toBeCloseTo(432.0, 2);
+    expect(pianoEngine.midiToFrequency(57)).toBeCloseTo(216.0, 2); // A3
+
+    // 3. A442 European Orchestral Pitch
+    pianoEngine.setConcertPitch(442);
+    expect(pianoEngine.getConcertPitch()).toBe(442);
+    expect(pianoEngine.midiToFrequency(69)).toBeCloseTo(442.0, 2);
+    expect(pianoEngine.midiToFrequency(57)).toBeCloseTo(221.0, 2); // A3
+
+    // 4. A415 Baroque Chamber Pitch (approx. 1 semitone flat)
+    pianoEngine.setConcertPitch(415);
+    expect(pianoEngine.getConcertPitch()).toBe(415);
+    expect(pianoEngine.midiToFrequency(69)).toBeCloseTo(415.0, 2);
+    expect(pianoEngine.midiToFrequency(57)).toBeCloseTo(207.5, 2); // A3
+
+    // Restore standard A440
+    pianoEngine.setConcertPitch(440);
+    expect(pianoEngine.getConcertPitch()).toBe(440);
+  });
+});
+
+describe('Expanded Repertoire & Categorization (v1.3.0)', () => {
+  it('contains all 6 required pieces plus diverse musical categories', () => {
+    const titles = SAMPLE_SONGS.map((s) => s.title);
+    expect(titles.some((t) => t.includes('Für Elise'))).toBe(true);
+    expect(titles.some((t) => t.includes('Nocturne'))).toBe(true);
+    expect(titles.some((t) => t.includes('Clair de Lune'))).toBe(true);
+    expect(titles.some((t) => t.includes('Canon in D'))).toBe(true);
+    expect(titles.some((t) => t.includes('River Flows In You'))).toBe(true);
+    expect(titles.some((t) => t.includes('Cornfield Chase') || t.includes('Interstellar'))).toBe(true);
+
+    // Verify all 5 categories are represented
+    const categories = new Set(SAMPLE_SONGS.map((s) => s.category));
+    expect(categories.has('Classical')).toBe(true);
+    expect(categories.has('Cinematic')).toBe(true);
+    expect(categories.has('Neo-Soul')).toBe(true);
+    expect(categories.has('Lo-Fi')).toBe(true);
+    expect(categories.has('Anime')).toBe(true);
+  });
+
+  it('Für Elise has the authentic romantic opening motif and rolling left hand arpeggios', () => {
+    const furElise = SAMPLE_SONGS.find((s) => s.id === 'fur-elise');
+    expect(furElise).toBeDefined();
+    expect(furElise?.notes.length).toBeGreaterThan(20);
+
+    // Verify the opening E5 (76) - D#5 (75) motif
+    const firstFiveNotes = furElise!.notes.slice(0, 5);
+    expect(firstFiveNotes.map((n) => n.pitch)).toEqual([76, 75, 76, 75, 76]);
+  });
+
+  it('Canon in D features the immortal Baroque ground bass progression', () => {
+    const canon = SAMPLE_SONGS.find((s) => s.id === 'canon-in-d');
+    expect(canon).toBeDefined();
+    expect(canon?.keySignature).toBe('D Major');
+
+    // First bass notes in left hand
+    const leftNotes = canon!.notes.filter((n) => n.hand === 'left');
+    expect(leftNotes[0].pitch).toBe(50); // D3
+  });
+
+  it('River Flows In You features the signature A major arpeggiated movement', () => {
+    const river = SAMPLE_SONGS.find((s) => s.id === 'river-flows-in-you');
+    expect(river).toBeDefined();
+    expect(river?.keySignature).toBe('A Major');
+    expect(river?.category).toBe('Neo-Soul');
+    expect(river?.notes.length).toBeGreaterThan(20);
+  });
+});
+
+describe('Edge Cases & Boundary Safeguards (v1.3.0)', () => {
+  it('safely handles empty note arrays when generating MIDI binary', () => {
+    const binary = generateMidiBinary([], 120, 'Empty Song');
+    expect(binary.byteLength).toBeGreaterThan(14);
+    const parsed = parseMidiFile(binary.buffer as ArrayBuffer, 'Empty.mid');
+    expect(parsed.notes.length).toBe(0);
+  });
+
+  it('clamps out-of-range MIDI parameters and speeds safely', () => {
+    const weirdNotes = [
+      { id: 'w1', pitch: 10, startTime: -2, duration: -0.5, hand: 'left' as const, velocity: 2.5 },
+      { id: 'w2', pitch: 120, startTime: 1, duration: 0.1, hand: 'right' as const, velocity: -0.4 },
+    ];
+    const binary = generateMidiBinary(weirdNotes, 9999, 'Clamped Song');
+    const parsed = parseMidiFile(binary.buffer as ArrayBuffer, 'Clamped.mid');
+    expect(parsed.notes.length).toBe(2);
+    expect(parsed.notes[0].pitch).toBeGreaterThanOrEqual(21);
+    expect(parsed.notes[1].pitch).toBeLessThanOrEqual(108);
+  });
+
+  it('handles ScoreKeeper zero state without divide by zero', () => {
+    const emptyScore = new ScoreKeeper().getState();
+    expect(emptyScore.accuracy).toBe(100);
+    expect(emptyScore.score).toBe(0);
+    expect(emptyScore.streak).toBe(0);
   });
 });
 

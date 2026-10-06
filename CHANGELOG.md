@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.0] - 2026-10-07
+
+### Added & Improved
+- **Interactive Performance Scoring & Gamification Engine**:
+  - Real-time note strike precision evaluation engine comparing user key strikes against piece timestamps:
+    - `PERFECT` within ±30ms (100 base points * multiplier)
+    - `GREAT` within ±70ms (75 base points * multiplier)
+    - `EARLY` between -150ms and -71ms (40 base points)
+    - `LATE` between +71ms and +200ms (40 base points)
+    - `MISS` beyond +200ms or unplayed notes (breaks streak back to 1x)
+  - Live streak combo multiplier with cosmic particle aura at 1x (0–9 hits), 2x (10–24 hits), 4x (25–49 hits), and 8x (50+ hits).
+  - Real-time score points accumulator, streak counter, and weighted accuracy % counter in the practice bar.
+  - Floating transient strike evaluation toast with neon glow (`PERFECT` cyan/gold, `GREAT` emerald, `EARLY` amber, `LATE` orange, `MISS` crimson).
+  - End-of-song **Virtuoso Performance Summary** modal rendered in liquid glass with animated 5-star rating (Virtuoso 5★, Maestro 4★, Pianist 3★, Apprentice 2★, Novice 1★), timing precision breakdown, celebratory canvas-confetti bursts on 4+ stars, and replay / MIDI export options.
+- **Live Performance Recorder & Standard MIDI (.mid) Binary Export**:
+  - One-tap recording button on practice bar with glowing pulsed recording indicator and elapsed time counter.
+  - Captures all user-played keys (via touch, computer keyboard, Web MIDI, and mic) with microsecond timestamp fidelity.
+  - Instantaneous session playback: loads directly into the 3D perspective waterfall and 2D playable piano.
+  - Direct browser download of recorded performances as valid Standard MIDI (`.mid`) binary files (SMF Format 0, 480 PPQ, tempo meta-events, variable-length delta ticks).
+- **Concert Pitch & Metronome Studio**:
+  - Micro-tuning frequency selector: standard A440Hz modern, healing A432Hz sacred Verdi, orchestral A442Hz European, and Baroque A415Hz chamber temperament with instant 88-key real-time audio retuning.
+  - Audio metronome with high-precision Web Audio lookahead scheduling, visual glass pendulum that physically sways with beat phase, beat accenting (4/4, 3/4, 6/8), and volume control.
+- **Expanded Song Repertoire with Search & Category Filtering**:
+  - Expanded built-in library with 9 pieces:
+    - Chopin's Nocturne Op. 9 No. 2 (Eb Major, Virtuoso, Classical)
+    - Beethoven's Für Elise (A minor, Intermediate, Classical)
+    - Debussy's Clair de Lune (Db Major, Intermediate, Classical)
+    - Pachelbel's Canon in D (D Major, Beginner, Classical)
+    - Yiruma's River Flows In You (A Major, Intermediate, Neo-Soul)
+    - Hans Zimmer's Interstellar Theme / Cornfield Chase (A minor, Intermediate, Cinematic)
+    - Joe Hisaishi's Merry-Go-Round of Life (G minor, Intermediate, Anime)
+    - Erik Satie's Gymnopédie No. 1 (D Major, Beginner, Classical)
+    - Midnight Cassette Groove (C minor, Beginner, Lo-Fi)
+  - Dynamic search bar filtering by piece, composer, key signature, difficulty, or tags.
+  - Category filter pills: All, Classical, Cinematic, Anime, Neo-Soul, Lo-Fi.
+- **Automated Verification & Unit Tests**:
+  - Added 15 new unit test specifications in `src/tests/pianotes.test.ts` (34 passing tests total) covering strike evaluation windows, streak multipliers, MIDI file generation & round-trip decoding, concert pitch micro-tuning, and repertoire integrity.
+
+---
+
 ## [1.2.0] - 2026-10-06
 
 ### Added & Improved

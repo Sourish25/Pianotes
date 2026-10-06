@@ -14,6 +14,7 @@ import {
   Layers,
   CheckCircle2,
   FileMusic,
+  Search,
 } from 'lucide-react';
 
 interface IngestionDrawerProps {
@@ -36,6 +37,10 @@ export const IngestionDrawer: React.FC<IngestionDrawerProps> = ({
   const [dragActive, setDragActive] = useState(false);
   const [activeTab, setActiveTab] = useState<'library' | 'url' | 'file' | 'architecture'>('library');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Search & Category Filtering
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string>('All');
 
   // AMT & Demucs Architecture Configuration
   const [onsetThreshold, setOnsetThreshold] = useState<number>(0.5);
@@ -262,69 +267,162 @@ export const IngestionDrawer: React.FC<IngestionDrawerProps> = ({
         )}
 
         {/* Tab 1: Pre-loaded Songs Library */}
-        {activeTab === 'library' && (
-          <div className="space-y-3">
-            {SAMPLE_SONGS.map((song) => {
-              const isSelected = song.id === currentSongId;
-              return (
-                <div
-                  key={song.id}
-                  onClick={() => {
-                    onSelectSong(song);
-                    onClose();
-                  }}
-                  className={`p-3.5 rounded-2xl cursor-pointer transition-all border ${
-                    isSelected
-                      ? 'bg-purple-500/15 border-purple-400/60 shadow-[0_0_20px_rgba(168,85,247,0.25)]'
-                      : 'bg-white/5 border-white/10 hover:border-white/25 hover:bg-white/10'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div
-                        className={`w-10 h-10 rounded-xl flex items-center justify-center border ${
-                          isSelected
-                            ? 'bg-purple-600 text-white border-purple-300 shadow-md'
-                            : 'bg-white/10 text-zinc-300 border-white/15'
+        {activeTab === 'library' && (() => {
+          const filteredSongs = SAMPLE_SONGS.filter((song) => {
+            const matchesCat = selectedCategory === 'All' || song.category === selectedCategory;
+            const q = searchQuery.toLowerCase().trim();
+            const matchesQuery =
+              !q ||
+              song.title.toLowerCase().includes(q) ||
+              song.composer.toLowerCase().includes(q) ||
+              song.description.toLowerCase().includes(q) ||
+              song.difficulty.toLowerCase().includes(q) ||
+              song.keySignature.toLowerCase().includes(q);
+            return matchesCat && matchesQuery;
+          });
+
+          return (
+            <div className="space-y-3">
+              {/* Search Bar & Category Filter Pills */}
+              <div className="space-y-2.5 mb-3">
+                <div className="relative">
+                  <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search by title, composer, key, or difficulty..."
+                    className="w-full pl-9 pr-4 py-2 rounded-xl bg-white/5 border border-white/10 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-purple-400 focus:ring-1 focus:ring-purple-400 transition-all"
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-400 hover:text-white"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                {/* Category Pills */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs no-scrollbar">
+                  {['All', 'Classical', 'Cinematic', 'Anime', 'Neo-Soul', 'Lo-Fi'].map((cat) => {
+                    const count = cat === 'All' ? SAMPLE_SONGS.length : SAMPLE_SONGS.filter((s) => s.category === cat).length;
+                    return (
+                      <button
+                        key={cat}
+                        onClick={() => setSelectedCategory(cat)}
+                        className={`px-3 py-1 rounded-full text-[11px] font-semibold transition-all shrink-0 border ${
+                          selectedCategory === cat
+                            ? 'bg-purple-600/40 text-purple-200 border-purple-400/60 shadow-[0_0_12px_rgba(168,85,247,0.3)]'
+                            : 'bg-white/5 text-zinc-400 border-white/10 hover:text-white hover:bg-white/10'
                         }`}
                       >
-                        <Music className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h4 className="text-sm font-semibold text-white tracking-tight">
-                            {song.title}
-                          </h4>
-                          {isSelected && (
-                            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-purple-500 text-white">
-                              PLAYING
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs text-zinc-400">{song.composer}</p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-3 text-right">
-                      <div>
-                        <span className="text-xs font-mono text-zinc-300 font-medium">
-                          {song.bpm} BPM
-                        </span>
-                        <p className="text-[11px] text-zinc-400">{song.keySignature}</p>
-                      </div>
-                      <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-purple-600 transition-colors">
-                        <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
-                      </div>
-                    </div>
-                  </div>
-                  <p className="text-xs text-zinc-300/80 mt-2 pl-13 line-clamp-1 leading-relaxed">
-                    {song.description}
-                  </p>
+                        {cat} ({count})
+                      </button>
+                    );
+                  })}
                 </div>
-              );
-            })}
-          </div>
-        )}
+              </div>
+
+              {/* Song Cards List */}
+              {filteredSongs.length === 0 ? (
+                <div className="py-12 text-center text-zinc-400 text-xs bg-white/5 rounded-2xl border border-white/10">
+                  <Music className="w-8 h-8 text-zinc-600 mx-auto mb-2" />
+                  <p>No repertoire found matching "{searchQuery}"</p>
+                  <button
+                    onClick={() => {
+                      setSearchQuery('');
+                      setSelectedCategory('All');
+                    }}
+                    className="mt-3 px-3 py-1 rounded-full bg-white/10 text-white text-[11px] hover:bg-white/20 transition-colors"
+                  >
+                    Clear Filters
+                  </button>
+                </div>
+              ) : (
+                filteredSongs.map((song) => {
+                  const isSelected = song.id === currentSongId;
+                  return (
+                    <div
+                      key={song.id}
+                      onClick={() => {
+                        onSelectSong(song);
+                        onClose();
+                      }}
+                      className={`p-3.5 rounded-2xl cursor-pointer transition-all border ${
+                        isSelected
+                          ? 'bg-purple-500/15 border-purple-400/60 shadow-[0_0_20px_rgba(168,85,247,0.25)]'
+                          : 'bg-white/5 border-white/10 hover:border-white/25 hover:bg-white/10'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div
+                            className={`w-10 h-10 rounded-xl flex items-center justify-center border ${
+                              isSelected
+                                ? 'bg-purple-600 text-white border-purple-300 shadow-md'
+                                : 'bg-white/10 text-zinc-300 border-white/15'
+                            }`}
+                          >
+                            <Music className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h4 className="text-sm font-semibold text-white tracking-tight">
+                                {song.title}
+                              </h4>
+                              {isSelected && (
+                                <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-purple-500 text-white">
+                                  PLAYING
+                                </span>
+                              )}
+                              {song.category && (
+                                <span className="px-1.5 py-0.5 rounded-md text-[9px] font-semibold bg-white/10 text-zinc-300 border border-white/15">
+                                  {song.category}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 text-xs text-zinc-400 mt-0.5">
+                              <span>{song.composer}</span>
+                              <span>&bull;</span>
+                              <span
+                                className={`text-[10px] font-bold ${
+                                  song.difficulty === 'Virtuoso'
+                                    ? 'text-amber-400'
+                                    : song.difficulty === 'Intermediate'
+                                    ? 'text-purple-300'
+                                    : 'text-emerald-300'
+                                }`}
+                              >
+                                {song.difficulty}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3 text-right">
+                          <div>
+                            <span className="text-xs font-mono text-zinc-300 font-medium">
+                              {song.bpm} BPM
+                            </span>
+                            <p className="text-[11px] text-zinc-400">{song.keySignature}</p>
+                          </div>
+                          <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-purple-600 transition-colors">
+                            <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                          </div>
+                        </div>
+                      </div>
+                      <p className="text-xs text-zinc-300/80 mt-2 pl-13 line-clamp-1 leading-relaxed">
+                        {song.description}
+                      </p>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          );
+        })()}
 
         {/* Tab 2: Social Media Reel / Short URL Ingestion */}
         {activeTab === 'url' && (
