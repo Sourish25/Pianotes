@@ -43,6 +43,7 @@ interface PracticeBarProps {
   recordingTime?: number;
   onToggleRecord?: () => void;
   onOpenMetronomeStudio?: () => void;
+  isMetronomeActive?: boolean;
   performanceScore?: PerformanceScore;
   onOpenVirtuosoSummary?: () => void;
 }
@@ -74,6 +75,7 @@ export const PracticeBar: React.FC<PracticeBarProps> = ({
   recordingTime = 0,
   onToggleRecord,
   onOpenMetronomeStudio,
+  isMetronomeActive = false,
   performanceScore,
   onOpenVirtuosoSummary,
 }) => {
@@ -136,25 +138,35 @@ export const PracticeBar: React.FC<PracticeBarProps> = ({
               )}
 
               {/* Live Scoring HUD */}
-              {performanceScore && performanceScore.totalNotes > 0 && (
+              {performanceScore && (performanceScore.totalNotes > 0 || performanceScore.score > 0 || duration > 0) && (
                 <button
                   onClick={onOpenVirtuosoSummary}
                   title="View Virtuoso Performance Summary"
                   className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] border transition-all ${
-                    performanceScore.multiplier >= 4
+                    performanceScore.multiplier >= 8
+                      ? 'bg-gradient-to-r from-purple-600/30 via-pink-600/30 to-amber-500/30 border-pink-400 text-white shadow-[0_0_18px_rgba(236,72,153,0.7),0_0_30px_rgba(168,85,247,0.5)] animate-pulse'
+                      : performanceScore.multiplier >= 4
                       ? 'bg-amber-500/20 border-amber-400/60 text-amber-200 shadow-[0_0_12px_rgba(245,158,11,0.5)] animate-pulse'
                       : performanceScore.streak >= 10
                       ? 'bg-purple-600/25 border-purple-400/50 text-purple-200'
                       : 'bg-white/5 border-white/10 text-zinc-300 hover:text-white'
                   }`}
                 >
-                  <Zap className={`w-3 h-3 ${performanceScore.multiplier >= 4 ? 'text-amber-400' : 'text-purple-400'}`} />
+                  {performanceScore.multiplier >= 8 ? (
+                    <Sparkles className="w-3 h-3 text-pink-300 animate-spin" />
+                  ) : (
+                    <Zap className={`w-3 h-3 ${performanceScore.multiplier >= 4 ? 'text-amber-400' : 'text-purple-400'}`} />
+                  )}
                   <span className="font-bold">{performanceScore.streak}x</span>
-                  {performanceScore.multiplier > 1 && (
+                  {performanceScore.multiplier >= 8 ? (
+                    <span className="px-1.5 py-0.2 rounded text-[8px] font-black bg-gradient-to-r from-pink-500 via-purple-500 to-amber-400 text-white shadow-[0_0_10px_#ec4899]">
+                      8X COSMIC
+                    </span>
+                  ) : performanceScore.multiplier > 1 ? (
                     <span className="px-1 rounded text-[8px] font-extrabold bg-amber-400 text-black">
                       {performanceScore.multiplier}X
                     </span>
-                  )}
+                  ) : null}
                   <span className="text-zinc-500">|</span>
                   <span className="font-bold text-amber-300">{performanceScore.score.toLocaleString()}</span>
                   <span className="text-zinc-500">|</span>
@@ -339,9 +351,13 @@ export const PracticeBar: React.FC<PracticeBarProps> = ({
               <button
                 onClick={onOpenMetronomeStudio}
                 title="Metronome & Concert Pitch Studio"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white/5 border border-white/10 text-zinc-300 hover:text-white hover:bg-white/10 transition-all"
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
+                  isMetronomeActive
+                    ? 'bg-purple-600/30 text-purple-200 border-purple-400/80 shadow-[0_0_12px_rgba(168,85,247,0.5)] animate-pulse'
+                    : 'bg-white/5 border-white/10 text-zinc-300 hover:text-white hover:bg-white/10'
+                }`}
               >
-                <Radio className="w-3.5 h-3.5 text-purple-400" />
+                <Radio className={`w-3.5 h-3.5 ${isMetronomeActive ? 'text-purple-300 animate-spin' : 'text-purple-400'}`} />
                 <span className="hidden sm:inline">Metronome</span>
               </button>
             )}

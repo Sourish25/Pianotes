@@ -43,7 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Dynamic search bar filtering by piece, composer, key signature, difficulty, or tags.
   - Category filter pills: All, Classical, Cinematic, Anime, Neo-Soul, Lo-Fi.
 - **Automated Verification & Unit Tests**:
-  - Added 15 new unit test specifications in `src/tests/pianotes.test.ts` (34 passing tests total) covering strike evaluation windows, streak multipliers, MIDI file generation & round-trip decoding, concert pitch micro-tuning, and repertoire integrity.
+  - Expanded unit test specifications in `src/tests/pianotes.test.ts` (37 passing tests total) covering strike evaluation windows, streak multipliers, MIDI binary generation & round-trip decoding, concert pitch micro-tuning, repertoire integrity, metronome beat accents, rapid repeated keystroke recorder buffers, and Uint8Array MIDI parsing.
 
 ---
 

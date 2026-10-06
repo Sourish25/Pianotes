@@ -80,21 +80,9 @@ export function calculateStarRating(accuracy: number): {
 }
 
 export class ScoreKeeper {
-  private state: PerformanceScore = {
-    score: 0,
-    streak: 0,
-    maxStreak: 0,
-    multiplier: 1,
-    perfectCount: 0,
-    greatCount: 0,
-    earlyCount: 0,
-    lateCount: 0,
-    missCount: 0,
-    totalNotes: 0,
-    accuracy: 100,
-  };
+  private state: PerformanceScore;
 
-  public reset(totalNotes: number = 0): void {
+  constructor(totalNotes: number = 0) {
     this.state = {
       score: 0,
       streak: 0,
@@ -108,6 +96,27 @@ export class ScoreKeeper {
       totalNotes,
       accuracy: 100,
     };
+  }
+
+  public reset(totalNotes?: number): void {
+    const total = totalNotes !== undefined ? totalNotes : this.state.totalNotes;
+    this.state = {
+      score: 0,
+      streak: 0,
+      maxStreak: 0,
+      multiplier: 1,
+      perfectCount: 0,
+      greatCount: 0,
+      earlyCount: 0,
+      lateCount: 0,
+      missCount: 0,
+      totalNotes: total,
+      accuracy: 100,
+    };
+  }
+
+  public setTotalNotes(total: number): void {
+    this.state.totalNotes = Math.max(0, total);
   }
 
   public registerHit(pitch: number, offsetMs: number): StrikeFeedback {

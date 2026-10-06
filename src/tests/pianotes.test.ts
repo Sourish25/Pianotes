@@ -622,5 +622,58 @@ describe('Edge Cases & Boundary Safeguards (v1.3.0)', () => {
     expect(emptyScore.score).toBe(0);
     expect(emptyScore.streak).toBe(0);
   });
+
+  it('preserves and updates ScoreKeeper totalNotes across constructor, reset, and setTotalNotes', () => {
+    const keeper = new ScoreKeeper(42);
+    expect(keeper.getState().totalNotes).toBe(42);
+
+    keeper.registerHit(60, 0);
+    expect(keeper.getState().totalNotes).toBe(42);
+
+    // Reset without args preserves totalNotes
+    keeper.reset();
+    expect(keeper.getState().totalNotes).toBe(42);
+    expect(keeper.getState().score).toBe(0);
+
+    // Reset with new totalNotes updates it
+    keeper.reset(100);
+    expect(keeper.getState().totalNotes).toBe(100);
+
+    // setTotalNotes directly modifies totalNotes
+    keeper.setTotalNotes(75);
+    expect(keeper.getState().totalNotes).toBe(75);
+  });
+
+  it('correctly calculates metronome beats per measure and accented beats', async () => {
+    const { metronomeEngine } = await import('../audio/MetronomeEngine');
+
+    metronomeEngine.setTimeSignature('4/4');
+    expect(metronomeEngine.getBeatsPerMeasure()).toBe(4);
+    expect(metronomeEngine.isBeatAccented(0)).toBe(true);
+    expect(metronomeEngine.isBeatAccented(1)).toBe(false);
+
+    metronomeEngine.setTimeSignature('3/4');
+    expect(metronomeEngine.getBeatsPerMeasure()).toBe(3);
+    expect(metronomeEngine.isBeatAccented(0)).toBe(true);
+    expect(metronomeEngine.isBeatAccented(2)).toBe(false);
+
+    metronomeEngine.setTimeSignature('6/8');
+    expect(metronomeEngine.getBeatsPerMeasure()).toBe(6);
+    expect(metronomeEngine.isBeatAccented(0)).toBe(true);
+    expect(metronomeEngine.isBeatAccented(1)).toBe(false);
+    expect(metronomeEngine.isBeatAccented(3)).toBe(true); // Compound duple beat 2 accent
+    expect(metronomeEngine.isBeatAccented(5)).toBe(false);
+  });
+
+  it('parses Uint8Array directly in parseMidiFile without needing ArrayBuffer casting', () => {
+    const binary = generateMidiBinary([
+      { id: '1', pitch: 60, startTime: 0, duration: 1, hand: 'right', velocity: 0.8 },
+    ], 120, 'Uint8 Test');
+
+    expect(binary instanceof Uint8Array).toBe(true);
+    const parsed = parseMidiFile(binary, 'Uint8 Test.mid');
+    expect(parsed.notes.length).toBe(1);
+    expect(parsed.notes[0].pitch).toBe(60);
+  });
 });
 

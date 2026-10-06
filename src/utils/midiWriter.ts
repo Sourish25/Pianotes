@@ -139,7 +139,8 @@ export function downloadMidiFile(
   title: string = 'pianotes_performance'
 ): void {
   const binary = generateMidiBinary(notes, bpm, title);
-  const blob = new Blob([binary.buffer as ArrayBuffer], { type: 'audio/midi' });
+  const bufferSlice = binary.buffer.slice(binary.byteOffset, binary.byteOffset + binary.byteLength) as ArrayBuffer;
+  const blob = new Blob([bufferSlice], { type: 'audio/midi' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

@@ -27,10 +27,10 @@ export const MetronomeStudio: React.FC<MetronomeStudioProps> = ({
   onClose,
   currentSongBpm = 100,
 }) => {
-  const [bpm, setBpm] = useState<number>(currentSongBpm || 100);
-  const [timeSignature, setTimeSignature] = useState<MetronomeTimeSignature>('4/4');
-  const [volume, setVolume] = useState<number>(0.75);
-  const [isRunning, setIsRunning] = useState<boolean>(false);
+  const [bpm, setBpm] = useState<number>(() => metronomeEngine.getBpm() || currentSongBpm || 100);
+  const [timeSignature, setTimeSignature] = useState<MetronomeTimeSignature>(() => metronomeEngine.getTimeSignature());
+  const [volume, setVolume] = useState<number>(() => metronomeEngine.getVolume());
+  const [isRunning, setIsRunning] = useState<boolean>(() => metronomeEngine.getIsRunning());
   const [currentBeat, setCurrentBeat] = useState<number>(0);
   const [isAccented, setIsAccented] = useState<boolean>(false);
   const [concertPitch, setConcertPitch] = useState<ConcertPitch>(

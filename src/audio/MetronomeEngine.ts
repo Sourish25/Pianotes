@@ -5,6 +5,7 @@ export type MetronomeTickCallback = (beat: number, totalBeats: number, isAccente
 export class MetronomeEngine {
   private static instance: MetronomeEngine;
   private ctx: AudioContext | null = null;
+  private masterGain: GainNode | null = null;
   private isRunning: boolean = false;
   private bpm: number = 100;
   private timeSignature: MetronomeTimeSignature = '4/4';
@@ -32,6 +33,8 @@ export class MetronomeEngine {
         window.AudioContext ||
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       this.ctx = new AudioCtx();
+      this.masterGain = this.ctx.createGain();
+      this.masterGain.connect(this.ctx.destination);
     }
     if (this.ctx.state === 'suspended') {
       this.ctx.resume();
@@ -76,6 +79,10 @@ export class MetronomeEngine {
     this.initContext();
     if (!this.ctx) return;
 
+    if (this.masterGain) {
+      this.masterGain.gain.setValueAtTime(1, this.ctx.currentTime);
+    }
+
     this.isRunning = true;
     this.currentBeat = 0;
     this.nextNoteTime = this.ctx.currentTime + 0.05;
@@ -88,9 +95,12 @@ export class MetronomeEngine {
       window.clearTimeout(this.timerId);
       this.timerId = null;
     }
+    if (this.masterGain && this.ctx) {
+      this.masterGain.gain.setValueAtTime(0, this.ctx.currentTime);
+    }
   }
 
-  private getBeatsPerMeasure(): number {
+  public getBeatsPerMeasure(): number {
     switch (this.timeSignature) {
       case '3/4':
         return 3;
@@ -102,7 +112,7 @@ export class MetronomeEngine {
     }
   }
 
-  private isBeatAccented(beat: number): boolean {
+  public isBeatAccented(beat: number): boolean {
     if (this.timeSignature === '6/8') {
       return beat === 0 || beat === 3;
     }
@@ -111,6 +121,11 @@ export class MetronomeEngine {
 
   private scheduler = () => {
     if (!this.isRunning || !this.ctx) return;
+
+    // Prevent backlog scheduling loops if tab was hidden or suspended
+    if (this.nextNoteTime < this.ctx.currentTime) {
+      this.nextNoteTime = this.ctx.currentTime;
+    }
 
     while (this.nextNoteTime < this.ctx.currentTime + this.scheduleAheadSec) {
       this.scheduleClick(this.nextNoteTime, this.currentBeat);
@@ -162,7 +177,11 @@ export class MetronomeEngine {
     }
 
     osc.connect(gain);
-    gain.connect(this.ctx.destination);
+    if (this.masterGain) {
+      gain.connect(this.masterGain);
+    } else {
+      gain.connect(this.ctx.destination);
+    }
 
     osc.start(time);
     osc.stop(time + 0.05);

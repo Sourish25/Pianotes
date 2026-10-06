@@ -3,8 +3,12 @@ import type { NoteEvent, SongData } from '../types';
 /**
  * Robust standard MIDI (SMF 0 and 1) file binary parser
  */
-export function parseMidiFile(buffer: ArrayBuffer, fileName: string = 'Uploaded MIDI'): SongData {
-  const data = new DataView(buffer);
+export function parseMidiFile(input: ArrayBuffer | Uint8Array, fileName: string = 'Uploaded MIDI'): SongData {
+  const isUint8 = input instanceof Uint8Array;
+  const buffer = isUint8 ? input.buffer : input;
+  const byteOffset = isUint8 ? input.byteOffset : 0;
+  const byteLength = isUint8 ? input.byteLength : input.byteLength;
+  const data = new DataView(buffer, byteOffset, byteLength);
   let offset = 0;
 
   function readString(len: number): string {

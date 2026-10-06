@@ -11,6 +11,7 @@ import type {
 } from './types';
 import { SAMPLE_SONGS } from './data/songs';
 import { pianoEngine } from './audio/PianoEngine';
+import { metronomeEngine } from './audio/MetronomeEngine';
 import { micListener } from './audio/MicrophoneListener';
 import { webMidiManager } from './audio/WebMidiManager';
 import { ScoreKeeper } from './utils/scoringSystem';
@@ -39,6 +40,11 @@ export const App: React.FC = () => {
   // Application State
   const [currentSong, setCurrentSong] = useState<SongData>(SAMPLE_SONGS[0]);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const isPlayingRef = useRef<boolean>(false);
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+  }, [isPlaying]);
+
   const [currentTime, setCurrentTime] = useState<number>(0);
   const [tempo, setTempo] = useState<number>(1.0);
   const [activeHand, setActiveHand] = useState<HandType>('both');
@@ -55,6 +61,15 @@ export const App: React.FC = () => {
   const [isMicActive, setIsMicActive] = useState<boolean>(false);
   const [micLevel, setMicLevel] = useState<number>(0);
 
+  // Metronome Active State
+  const [isMetronomeActive, setIsMetronomeActive] = useState<boolean>(() => metronomeEngine.getIsRunning());
+  useEffect(() => {
+    const iv = setInterval(() => {
+      setIsMetronomeActive(metronomeEngine.getIsRunning());
+    }, 300);
+    return () => clearInterval(iv);
+  }, []);
+
   // Drawers & Modals
   const [isIngestionOpen, setIsIngestionOpen] = useState<boolean>(false);
   const [isInstrumentOpen, setIsInstrumentOpen] = useState<boolean>(false);
@@ -63,7 +78,7 @@ export const App: React.FC = () => {
   const [showVirtuosoSummary, setShowVirtuosoSummary] = useState<boolean>(false);
 
   // Performance Scoring & Gamification
-  const scoreKeeperRef = useRef<ScoreKeeper>(new ScoreKeeper());
+  const scoreKeeperRef = useRef<ScoreKeeper>(new ScoreKeeper(SAMPLE_SONGS[0].notes.length));
   const [performanceScore, setPerformanceScore] = useState<PerformanceScore>({
     score: 0,
     streak: 0,
@@ -74,7 +89,7 @@ export const App: React.FC = () => {
     earlyCount: 0,
     lateCount: 0,
     missCount: 0,
-    totalNotes: 0,
+    totalNotes: SAMPLE_SONGS[0].notes.length,
     accuracy: 100,
   });
   const [latestStrike, setLatestStrike] = useState<StrikeFeedback | null>(null);
@@ -184,7 +199,7 @@ export const App: React.FC = () => {
 
   // Handle Note Trigger by User (from on-screen keyboard, computer keyboard, mic, or MIDI)
   const handleUserPlayKey = useCallback(
-    (midi: number, fromMic: boolean = false) => {
+    (midi: number, fromMic: boolean = false, velocity: number = 0.85) => {
       userPlayedKeysRef.current.add(midi);
       setUserPlayedPitches(Array.from(userPlayedKeysRef.current));
 
@@ -196,31 +211,46 @@ export const App: React.FC = () => {
       // Capture note in recorder if active
       if (recordingStartTimeRef.current !== null) {
         const noteStartSec = (performance.now() - recordingStartTimeRef.current) / 1000;
+        // If the same key is already being recorded without release, finalize previous note first
+        if (activeRecordedPitchesRef.current.has(midi)) {
+          const prev = activeRecordedPitchesRef.current.get(midi)!;
+          const prevDur = Math.max(0.08, noteStartSec - prev.startTime);
+          recordedNotesRef.current.push({
+            id: `rec-${recordedNotesRef.current.length + 1}`,
+            pitch: prev.pitch,
+            startTime: prev.startTime,
+            duration: prevDur,
+            hand: prev.pitch < 60 ? 'left' : 'right',
+            velocity: prev.velocity,
+          });
+        }
         activeRecordedPitchesRef.current.set(midi, {
           pitch: midi,
-          velocity: 0.85,
+          velocity,
           startTime: noteStartSec,
         });
       }
 
-      // Real-time Strike Evaluation against active piece
-      const unscoredMatches = currentSong.notes.filter(
-        (n) =>
-          n.pitch === midi &&
-          !scoredNoteIdsRef.current.has(n.id) &&
-          Math.abs(n.startTime - currentTime) <= 0.25
-      );
-
-      if (unscoredMatches.length > 0) {
-        unscoredMatches.sort(
-          (a, b) => Math.abs(a.startTime - currentTime) - Math.abs(b.startTime - currentTime)
+      // Real-time Strike Evaluation against active piece (only when piece is actively playing)
+      if (isPlayingRef.current) {
+        const unscoredMatches = currentSong.notes.filter(
+          (n) =>
+            n.pitch === midi &&
+            !scoredNoteIdsRef.current.has(n.id) &&
+            Math.abs(n.startTime - currentTime) <= 0.25
         );
-        const hitNote = unscoredMatches[0];
-        const offsetMs = (currentTime - hitNote.startTime) * 1000;
-        const feedback = scoreKeeperRef.current.registerHit(midi, offsetMs);
-        scoredNoteIdsRef.current.add(hitNote.id);
-        setPerformanceScore(scoreKeeperRef.current.getState());
-        setLatestStrike(feedback);
+
+        if (unscoredMatches.length > 0) {
+          unscoredMatches.sort(
+            (a, b) => Math.abs(a.startTime - currentTime) - Math.abs(b.startTime - currentTime)
+          );
+          const hitNote = unscoredMatches[0];
+          const offsetMs = (currentTime - hitNote.startTime) * 1000;
+          const feedback = scoreKeeperRef.current.registerHit(midi, offsetMs);
+          scoredNoteIdsRef.current.add(hitNote.id);
+          setPerformanceScore(scoreKeeperRef.current.getState());
+          setLatestStrike(feedback);
+        }
       }
 
       // Mark any matching upcoming or current notes as satisfied for Wait-for-Me mode
@@ -264,6 +294,9 @@ export const App: React.FC = () => {
         });
       });
       activeRecordedPitchesRef.current.clear();
+
+      // Chronologically order recorded notes for perfect 3D waterfall playback and MIDI export
+      recordedNotesRef.current.sort((a, b) => a.startTime - b.startTime || a.pitch - b.pitch);
 
       if (recordedNotesRef.current.length > 0) {
         const session: RecordingSession = {
@@ -314,7 +347,7 @@ export const App: React.FC = () => {
     webMidiManager.init(
       (pitch, velocity) => {
         pianoEngine.playNote(pitch, velocity);
-        handleUserPlayKey(pitch);
+        handleUserPlayKey(pitch, false, velocity);
       },
       (pitch) => {
         handleUserReleaseKey(pitch);
@@ -356,6 +389,17 @@ export const App: React.FC = () => {
         } else if (nextTime >= currentSong.duration) {
           setIsPlaying(false);
           stopAudioNotes();
+          // Finalize all remaining un-scored notes as MISS so final accuracy covers the full piece
+          if (!waitForMe) {
+            currentSong.notes.forEach((n) => {
+              if (activeHand !== 'both' && n.hand !== activeHand) return;
+              if (!scoredNoteIdsRef.current.has(n.id)) {
+                scoredNoteIdsRef.current.add(n.id);
+                scoreKeeperRef.current.registerMiss(n.pitch);
+              }
+            });
+            setPerformanceScore(scoreKeeperRef.current.getState());
+          }
           setShowVirtuosoSummary(true);
           return currentSong.duration;
         }
@@ -473,15 +517,16 @@ export const App: React.FC = () => {
   }, [isPlaying, tempo, waitForMe, activeHand, currentSong, loopA, loopB, stopAudioNotes]);
 
   // Restart Song
-  const handleRestart = () => {
+  const handleRestart = useCallback((overrideTotalNotes?: number) => {
     setCurrentTime(0);
     satisfiedNoteIdsRef.current.clear();
     scoredNoteIdsRef.current.clear();
-    scoreKeeperRef.current.reset(currentSong.notes.length);
+    const count = overrideTotalNotes ?? currentSong.notes.length;
+    scoreKeeperRef.current.reset(count);
     setPerformanceScore(scoreKeeperRef.current.getState());
     setLatestStrike(null);
     stopAllVoices();
-  };
+  }, [currentSong.notes.length, stopAllVoices]);
 
   // Seek Timeline
   const handleSeek = (seconds: number) => {
@@ -500,9 +545,7 @@ export const App: React.FC = () => {
   // Switch Song
   const handleSelectSong = (song: SongData) => {
     setCurrentSong(song);
-    scoreKeeperRef.current.reset(song.notes.length);
-    setPerformanceScore(scoreKeeperRef.current.getState());
-    handleRestart();
+    handleRestart(song.notes.length);
   };
 
   // Computer Keyboard Piano Support (ASDFGHJKL...)
@@ -699,11 +742,15 @@ export const App: React.FC = () => {
               {latestStrike.combo >= 2 && (
                 <div className="text-[10px] font-extrabold tracking-wider text-white flex items-center gap-1 mt-0.5">
                   <span>COMBO {latestStrike.combo}x</span>
-                  {latestStrike.multiplier > 1 && (
+                  {latestStrike.multiplier >= 8 ? (
+                    <span className="px-1.5 py-0.5 rounded-full bg-gradient-to-r from-purple-500 via-pink-500 to-amber-400 text-white text-[9px] font-black shadow-[0_0_15px_rgba(236,72,153,0.9)] animate-pulse">
+                      ★ 8X COSMIC AURA ★
+                    </span>
+                  ) : latestStrike.multiplier > 1 ? (
                     <span className="px-1 rounded bg-amber-400 text-black text-[9px] font-black">
                       {latestStrike.multiplier}X MULTIPLIER
                     </span>
-                  )}
+                  ) : null}
                 </div>
               )}
             </div>
@@ -804,6 +851,7 @@ export const App: React.FC = () => {
         recordingTime={recordingTime}
         onToggleRecord={handleToggleRecord}
         onOpenMetronomeStudio={() => setShowMetronomeStudio(true)}
+        isMetronomeActive={isMetronomeActive}
         performanceScore={performanceScore}
         onOpenVirtuosoSummary={() => setShowVirtuosoSummary(true)}
       />
@@ -825,11 +873,13 @@ export const App: React.FC = () => {
       />
 
       {/* Concert Pitch & Metronome Studio */}
-      <MetronomeStudio
-        isOpen={showMetronomeStudio}
-        onClose={() => setShowMetronomeStudio(false)}
-        currentSongBpm={currentSong.bpm}
-      />
+      {showMetronomeStudio && (
+        <MetronomeStudio
+          isOpen={showMetronomeStudio}
+          onClose={() => setShowMetronomeStudio(false)}
+          currentSongBpm={currentSong.bpm}
+        />
+      )}
 
       {/* Virtuoso Performance Summary Modal */}
       <VirtuosoSummaryModal
@@ -838,7 +888,10 @@ export const App: React.FC = () => {
         score={performanceScore}
         songTitle={currentSong.title}
         composer={currentSong.composer}
-        onReplay={handleRestart}
+        onReplay={() => {
+          handleRestart();
+          setIsPlaying(true);
+        }}
         onOpenLibrary={() => setIsIngestionOpen(true)}
         onExportMidi={() => downloadMidiFile(currentSong.notes, currentSong.bpm, currentSong.title)}
       />
@@ -904,6 +957,7 @@ export const App: React.FC = () => {
                     notes: recordedSession.notes,
                   };
                   handleSelectSong(recordedSong);
+                  setIsPlaying(true);
                   setShowRecordModal(false);
                 }}
                 className="w-full flex items-center justify-center gap-2 !py-2.5 text-xs text-white"
