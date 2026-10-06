@@ -210,14 +210,22 @@ export const StudioDrawer: React.FC<StudioDrawerProps> = ({
 
   const totalBeats = timeSignature === '3/4' ? 3 : timeSignature === '6/8' ? 6 : 4;
 
+  if (!isOpen) return null;
+
   return (
-    <div className="liquid-sheet-overlay !z-50" onClick={onClose}>
+    <div className="fixed inset-0 z-50 pointer-events-none flex justify-end">
+      {/* Mobile portrait backdrop dismiss */}
       <div
-        className="liquid-sheet"
+        className="block md:hidden absolute inset-0 bg-black/60 backdrop-blur-md pointer-events-auto"
+        onClick={onClose}
+      />
+
+      {/* Right-Flyout Studio Panel: Audition sounds live while tweaking! */}
+      <div
+        className="relative pointer-events-auto w-full md:w-[420px] max-w-[90vw] h-full bg-[#0e101a]/95 backdrop-blur-3xl border-l border-white/20 shadow-[-20px_0_50px_rgba(0,0,0,0.8),inset_0_1px_1px_rgba(255,255,255,0.4)] flex flex-col p-5 overflow-y-auto animate-in slide-in-from-right duration-300"
         onClick={(e) => e.stopPropagation()}
-        style={{ maxWidth: '640px' }}
       >
-        <div className="sheet-handle" onClick={onClose} />
+        <div className="sheet-handle block md:hidden" onClick={onClose} />
 
         {/* Header Bar */}
         <div className="flex items-center justify-between pb-3 mb-4 border-b border-white/10">

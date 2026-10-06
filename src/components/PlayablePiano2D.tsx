@@ -27,8 +27,10 @@ export const PlayablePiano2D: React.FC<PlayablePiano2DProps> = ({
   const keyboardViewportRef = useRef<HTMLDivElement>(null);
   const miniViewportRef = useRef<HTMLDivElement>(null);
   const [pressedKeys, setPressedKeys] = useState<Set<number>>(new Set());
-  const [isPointerDown, setIsPointerDown] = useState(false);
   const [showNoteLabels, setShowNoteLabels] = useState(true);
+
+  // Multi-Touch Polyphony Pointer Map: pointerId -> midiPitch
+  const pointerMapRef = useRef<Map<number, number>>(new Map());
 
   // Map activeKeys into a lookup map: midi -> hand
   const activeKeysMap = React.useMemo(() => {
@@ -116,6 +118,77 @@ export const PlayablePiano2D: React.FC<PlayablePiano2DProps> = ({
     if (onUserReleaseKey) onUserReleaseKey(midi);
   }, [onUserReleaseKey]);
 
+  // Global window pointer listeners to guarantee zero stuck notes if finger lifts off-screen
+  useEffect(() => {
+    const handleGlobalPointerUp = (e: PointerEvent) => {
+      if (pointerMapRef.current.has(e.pointerId)) {
+        const pitch = pointerMapRef.current.get(e.pointerId);
+        pointerMapRef.current.delete(e.pointerId);
+        if (pitch !== undefined && pitch !== -1) {
+          const stillHeld = Array.from(pointerMapRef.current.values()).includes(pitch);
+          if (!stillHeld) {
+            handleNoteEnd(pitch);
+          }
+        }
+      }
+    };
+    window.addEventListener('pointerup', handleGlobalPointerUp);
+    window.addEventListener('pointercancel', handleGlobalPointerUp);
+    return () => {
+      window.removeEventListener('pointerup', handleGlobalPointerUp);
+      window.removeEventListener('pointercancel', handleGlobalPointerUp);
+    };
+  }, [handleNoteEnd]);
+
+  // Per-finger pointer event handlers
+  const handleKeyPointerDown = useCallback((e: React.PointerEvent, midi: number) => {
+    e.preventDefault();
+    (e.target as HTMLElement)?.releasePointerCapture?.(e.pointerId);
+
+    const prevPitch = pointerMapRef.current.get(e.pointerId);
+    if (prevPitch !== undefined && prevPitch !== midi && prevPitch !== -1) {
+      const stillHeld = Array.from(pointerMapRef.current.entries()).some(
+        ([id, p]) => id !== e.pointerId && p === prevPitch
+      );
+      if (!stillHeld) {
+        handleNoteEnd(prevPitch);
+      }
+    }
+
+    pointerMapRef.current.set(e.pointerId, midi);
+    handleNoteStart(midi);
+  }, [handleNoteStart, handleNoteEnd]);
+
+  const handleKeyPointerUp = useCallback((e: React.PointerEvent, midi: number) => {
+    e.preventDefault();
+    const currentPitch = pointerMapRef.current.get(e.pointerId) ?? midi;
+    pointerMapRef.current.delete(e.pointerId);
+
+    if (currentPitch !== -1) {
+      const stillHeld = Array.from(pointerMapRef.current.values()).includes(currentPitch);
+      if (!stillHeld) {
+        handleNoteEnd(currentPitch);
+      }
+    }
+  }, [handleNoteEnd]);
+
+  const handleKeyPointerEnter = useCallback((e: React.PointerEvent, midi: number) => {
+    if (pointerMapRef.current.has(e.pointerId)) {
+      e.preventDefault();
+      const prevPitch = pointerMapRef.current.get(e.pointerId);
+      if (prevPitch !== midi) {
+        pointerMapRef.current.set(e.pointerId, midi);
+        if (prevPitch !== undefined && prevPitch !== -1) {
+          const stillHeld = Array.from(pointerMapRef.current.values()).includes(prevPitch);
+          if (!stillHeld) {
+            handleNoteEnd(prevPitch);
+          }
+        }
+        handleNoteStart(midi);
+      }
+    }
+  }, [handleNoteStart, handleNoteEnd]);
+
   // Jump smoothly to a specific octave (C1 to C7)
   const scrollToOctave = useCallback((octave: number) => {
     triggerHaptic('light');
@@ -164,27 +237,27 @@ export const PlayablePiano2D: React.FC<PlayablePiano2DProps> = ({
 
   return (
     <div className="piano-wrapper">
-      {/* Sleek Minimal Octave & Sustain Ribbon */}
-      <div className="flex items-center justify-between px-4 py-1.5 bg-[#080910] border-b border-white/10 text-xs">
-        {/* Compact Octave Switcher */}
-        <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/5 border border-white/10">
-          <span className="text-[10px] text-zinc-500 font-bold mr-0.5">OCTAVE</span>
+      {/* Sleek Minimal Octave & Sustain Ribbon with 36px+ Touch Targets */}
+      <div className="flex items-center justify-between px-3 py-1 bg-[#080910] border-b border-white/10 text-xs select-none">
+        {/* Expanded Octave Switcher (min 36px touch targets) */}
+        <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-white/5 border border-white/10">
+          <span className="text-[10px] text-zinc-500 font-bold px-1 hidden sm:inline">OCTAVE</span>
           <button
             onClick={() => scrollToOctave(currentOctave - 1)}
             disabled={currentOctave <= 1}
-            className="p-0.5 rounded text-zinc-400 hover:text-white disabled:opacity-25"
+            className="w-9 h-9 min-w-[36px] min-h-[36px] rounded-full flex items-center justify-center text-zinc-400 hover:text-white hover:bg-white/10 disabled:opacity-25 transition-all"
             title="Previous Octave"
           >
-            <ChevronLeft className="w-3 h-3" />
+            <ChevronLeft className="w-4 h-4" />
           </button>
           {[1, 2, 3, 4, 5, 6, 7].map((oct) => (
             <button
               key={oct}
               onClick={() => scrollToOctave(oct)}
-              className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-all ${
+              className={`w-9 h-9 min-w-[36px] min-h-[36px] rounded-full flex items-center justify-center text-xs font-mono font-bold transition-all ${
                 currentOctave === oct
-                  ? 'bg-purple-600 text-white shadow-sm'
-                  : 'text-zinc-400 hover:text-white'
+                  ? 'bg-purple-600 text-white shadow-md shadow-purple-600/40'
+                  : 'text-zinc-400 hover:text-white hover:bg-white/10'
               }`}
             >
               C{oct}
@@ -193,10 +266,10 @@ export const PlayablePiano2D: React.FC<PlayablePiano2DProps> = ({
           <button
             onClick={() => scrollToOctave(currentOctave + 1)}
             disabled={currentOctave >= 7}
-            className="p-0.5 rounded text-zinc-400 hover:text-white disabled:opacity-25"
+            className="w-9 h-9 min-w-[36px] min-h-[36px] rounded-full flex items-center justify-center text-zinc-400 hover:text-white hover:bg-white/10 disabled:opacity-25 transition-all"
             title="Next Octave"
           >
-            <ChevronRight className="w-3 h-3" />
+            <ChevronRight className="w-4 h-4" />
           </button>
         </div>
 
@@ -207,13 +280,13 @@ export const PlayablePiano2D: React.FC<PlayablePiano2DProps> = ({
               triggerHaptic('light');
               setShowNoteLabels(!showNoteLabels);
             }}
-            className={`flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold transition-all border ${
+            className={`flex items-center gap-1.5 px-3 min-h-[36px] rounded-full text-xs font-semibold transition-all border ${
               showNoteLabels
                 ? 'bg-purple-600/25 border-purple-400/50 text-purple-200'
-                : 'bg-white/5 border-white/10 text-zinc-400 hover:text-white'
+                : 'bg-white/5 border-white/10 text-zinc-400 hover:text-white hover:bg-white/10'
             }`}
           >
-            <Tag className="w-2.5 h-2.5" />
+            <Tag className="w-3.5 h-3.5" />
             <span>Labels</span>
           </button>
 
@@ -222,13 +295,13 @@ export const PlayablePiano2D: React.FC<PlayablePiano2DProps> = ({
               triggerHaptic('medium');
               onToggleSustain();
             }}
-            className={`flex items-center gap-1.5 px-3 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase transition-all shadow-md border ${
+            className={`flex items-center gap-1.5 px-3.5 min-h-[36px] rounded-full text-xs font-bold tracking-wider uppercase transition-all shadow-md border ${
               sustainPedal
                 ? 'bg-amber-500 text-black border-amber-300 shadow-[0_0_14px_rgba(245,158,11,0.6)] animate-pulse'
-                : 'bg-white/5 text-zinc-400 border-white/10 hover:text-white'
+                : 'bg-white/5 text-zinc-400 border-white/10 hover:text-white hover:bg-white/10'
             }`}
           >
-            <Disc className={`w-3 h-3 ${sustainPedal ? 'rotate-90 text-black' : 'text-zinc-500'}`} />
+            <Disc className={`w-3.5 h-3.5 ${sustainPedal ? 'rotate-90 text-black' : 'text-zinc-500'}`} />
             <span>Sustain {sustainPedal ? 'ON' : 'OFF'}</span>
           </button>
         </div>
@@ -270,14 +343,17 @@ export const PlayablePiano2D: React.FC<PlayablePiano2DProps> = ({
       <div
         ref={keyboardViewportRef}
         className="keyboard-viewport"
-        onPointerDown={() => setIsPointerDown(true)}
-        onPointerUp={() => {
-          setIsPointerDown(false);
-          pressedKeys.forEach((m) => handleNoteEnd(m));
-        }}
-        onPointerLeave={() => {
-          setIsPointerDown(false);
-          pressedKeys.forEach((m) => handleNoteEnd(m));
+        onPointerLeave={(e) => {
+          if (pointerMapRef.current.has(e.pointerId)) {
+            const pitch = pointerMapRef.current.get(e.pointerId);
+            pointerMapRef.current.delete(e.pointerId);
+            if (pitch !== undefined && pitch !== -1) {
+              const stillHeld = Array.from(pointerMapRef.current.values()).includes(pitch);
+              if (!stillHeld) {
+                handleNoteEnd(pitch);
+              }
+            }
+          }
         }}
       >
         <div className="keyboard-keys-container">
@@ -296,27 +372,9 @@ export const PlayablePiano2D: React.FC<PlayablePiano2DProps> = ({
                 {/* White Key */}
                 <div
                   data-midi={wk.midi}
-                  onPointerDown={(e) => {
-                    e.preventDefault();
-                    (e.target as HTMLElement)?.releasePointerCapture?.(e.pointerId);
-                    handleNoteStart(wk.midi);
-                  }}
-                  onPointerUp={(e) => {
-                    e.preventDefault();
-                    handleNoteEnd(wk.midi);
-                  }}
-                  onPointerEnter={(e) => {
-                    if (isPointerDown) {
-                      e.preventDefault();
-                      handleNoteStart(wk.midi);
-                    }
-                  }}
-                  onPointerLeave={(e) => {
-                    if (isPointerDown) {
-                      e.preventDefault();
-                      handleNoteEnd(wk.midi);
-                    }
-                  }}
+                  onPointerDown={(e) => handleKeyPointerDown(e, wk.midi)}
+                  onPointerUp={(e) => handleKeyPointerUp(e, wk.midi)}
+                  onPointerEnter={(e) => handleKeyPointerEnter(e, wk.midi)}
                   className={`white-key ${isWhiteActive ? 'active-key' : ''} ${whiteHandClass}`}
                 >
                   <div className="key-led-indicator" />
@@ -334,28 +392,15 @@ export const PlayablePiano2D: React.FC<PlayablePiano2DProps> = ({
                     style={{ left: 30 }}
                     onPointerDown={(e) => {
                       e.stopPropagation();
-                      e.preventDefault();
-                      (e.target as HTMLElement)?.releasePointerCapture?.(e.pointerId);
-                      handleNoteStart(nextKey.midi);
+                      handleKeyPointerDown(e, nextKey.midi);
                     }}
                     onPointerUp={(e) => {
                       e.stopPropagation();
-                      e.preventDefault();
-                      handleNoteEnd(nextKey.midi);
+                      handleKeyPointerUp(e, nextKey.midi);
                     }}
                     onPointerEnter={(e) => {
-                      if (isPointerDown) {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        handleNoteStart(nextKey.midi);
-                      }
-                    }}
-                    onPointerLeave={(e) => {
-                      if (isPointerDown) {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        handleNoteEnd(nextKey.midi);
-                      }
+                      e.stopPropagation();
+                      handleKeyPointerEnter(e, nextKey.midi);
                     }}
                     className={`black-key ${isBlackActive ? 'active-key' : ''} ${blackHandClass}`}
                   >

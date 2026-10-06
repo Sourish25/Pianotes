@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.1.0] - 2026-10-07
+
+### 💎 Hardcore Design Critique Remediation & Visual Spatial Polish
+- **P0 Usability & Ergonomics Fixes**:
+  - **Multi-Touch Polyphony Pointer Map**: Replaced the single `isPointerDown` flag with an isolated pointer tracking map (`Map<number, number>`) in `PlayablePiano2D.tsx`. Releasing one finger now only releases that finger's note so triads, multi-finger chords, and legato play cleanly.
+  - **White Key Strike Clearance**: In `PracticeBar.tsx`, auto-retracts to an ultra-sleek compact transport pill on mobile landscape, with `pointer-events: none` on transparent container areas restoring 100% thumb clearance on the white key lips.
+  - **Dual View Proportions & Decapitation Fix**: Fixed keyboard cropping in `App.tsx` by allocating responsive flex proportions (`min-h-[210px]`) for the 2D piano, preserving Octave Switcher (C1-C7), sustain button, and black key bevels.
+  - **0-Note Scoring Logic Fix**: Updated `scoringSystem.ts` to return `0%` accuracy and `0` stars when `total === 0` (or `score === 0`). Guarded confetti bursts so 0 notes never trigger celebration.
+  - **Virtuoso Summary Modal 2-Column Layout**: Enhanced `VirtuosoSummaryModal.tsx` with a responsive 2-column landscape grid and `max-h-[92vh] overflow-y-auto` so action buttons (Replay, Library, Export MIDI) are permanently accessible on landscape phones.
+- **P1 Visual Hierarchy & Spatial Cohesion**:
+  - **HUD Collision & Transform Fix**: Updated `@keyframes floatBadge` in `liquid-glass.css` to preserve `translate(-50%, -50%)`, and relocated the Floating Chord Badge in `Waterfall3D.tsx` to the top-left margin to eliminate collisions with the Strike HUD and falling notes.
+  - **Frozen Camera Sway in Dual View**: Added `isDualView` camera lock in `Waterfall3D.tsx` pinning camera X position to `0` in Dual View, keeping falling 3D note bars permanently aligned with 2D piano keys below.
+  - **Zen Mode Header Fix**: Positioned `<header>` as `absolute top-0 left-0 right-0 z-40` in `App.tsx`, eliminating phantom purple gutters when header collapses in Zen Mode.
+  - **Right-Flyout Studio & Ingestion Panels**: Converted bottom sheets on widescreen landscape into right-side flyout panels (`fixed right-0 top-0 bottom-0 w-[420px] max-w-[90vw]`) without blocking overlays, allowing live piano auditioning while tweaking sounds.
+- **P2 Apple Liquid Glass Material Polish**:
+  - Refined `.liquid-glass::before` rim highlight to Apple's luxury monochromatic specular gradient (`linear-gradient(135deg, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0.05) 50%, rgba(255,255,255,0.2) 100%)`).
+  - Removed unused SVG filter definitions (`#apple-chromatic-prism` and `#apple-liquid-disp`).
+  - Replaced `--gel-bounce` with a damped physical spring (`cubic-bezier(0.16, 1, 0.3, 1)`).
+  - Expanded touch targets: Octave switcher pills to min 36px, primary practice controls to 40-44px.
+- **Dev Server Process Cleanup**: Terminated redundant background Vite server instances; ensured single clean dev server on port 5173.
+
+---
+
 ## [2.0.0] - 2026-10-07
 
 ### 🚀 Production Redesign & UI Debloating (Android-First)

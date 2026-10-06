@@ -122,7 +122,7 @@ export const App: React.FC = () => {
     lateCount: 0,
     missCount: 0,
     totalNotes: SAMPLE_SONGS[0].notes.length,
-    accuracy: 100,
+    accuracy: 0,
   });
   const [latestStrike, setLatestStrike] = useState<StrikeFeedback | null>(null);
   const scoredNoteIdsRef = useRef<Set<string>>(new Set());
@@ -640,7 +640,7 @@ export const App: React.FC = () => {
 
       {/* Top Glass Navigation Bar */}
       <header
-        className={`relative w-full z-40 px-6 py-2.5 flex items-center justify-between border-b border-white/10 bg-[#07080e]/60 backdrop-blur-2xl transition-all duration-300 ${
+        className={`absolute top-0 left-0 right-0 z-40 px-4 sm:px-6 py-2.5 flex items-center justify-between border-b border-white/10 bg-[#07080e]/60 backdrop-blur-2xl transition-all duration-300 ${
           isZenMode
             ? isUserActive
               ? 'opacity-85 translate-y-0'
@@ -842,7 +842,7 @@ export const App: React.FC = () => {
         {(viewportMode === 'waterfall3d' || viewportMode === 'dual') && (
           <div
             className={`relative w-full ${
-              viewportMode === 'dual' ? 'h-[58%]' : 'h-full'
+              viewportMode === 'dual' ? 'flex-1 min-h-[140px]' : 'h-full'
             } transition-all duration-300`}
           >
             <Waterfall3D
@@ -851,6 +851,7 @@ export const App: React.FC = () => {
               isPlaying={isPlaying}
               activeHand={activeHand}
               userPlayedKeys={userPlayedPitches}
+              isDualView={viewportMode === 'dual'}
             />
           </div>
         )}
@@ -859,7 +860,7 @@ export const App: React.FC = () => {
         {(viewportMode === 'piano2d' || viewportMode === 'dual') && (
           <div
             className={`relative w-full ${
-              viewportMode === 'dual' ? 'h-[42%]' : 'h-full'
+              viewportMode === 'dual' ? 'flex-none min-h-[210px] sm:min-h-[250px]' : 'h-full'
             } transition-all duration-300 overflow-hidden flex flex-col justify-end`}
           >
             <PlayablePiano2D

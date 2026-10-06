@@ -618,9 +618,10 @@ describe('Edge Cases & Boundary Safeguards (v1.3.0)', () => {
 
   it('handles ScoreKeeper zero state without divide by zero', () => {
     const emptyScore = new ScoreKeeper().getState();
-    expect(emptyScore.accuracy).toBe(100);
+    expect(emptyScore.accuracy).toBe(0);
     expect(emptyScore.score).toBe(0);
     expect(emptyScore.streak).toBe(0);
+    expect(calculateStarRating(emptyScore.accuracy).stars).toBe(0);
   });
 
   it('preserves and updates ScoreKeeper totalNotes across constructor, reset, and setTotalNotes', () => {

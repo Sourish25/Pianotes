@@ -48,7 +48,7 @@ export function calculateAccuracy(score: PerformanceScore): number {
     score.lateCount +
     score.missCount;
 
-  if (total === 0) return 100;
+  if (total === 0 || score.score === 0) return 0;
 
   const weightedPoints =
     score.perfectCount * 1.0 +
@@ -64,6 +64,9 @@ export function calculateStarRating(accuracy: number): {
   rank: 'Virtuoso' | 'Maestro' | 'Pianist' | 'Apprentice' | 'Novice';
   label: string;
 } {
+  if (accuracy <= 0) {
+    return { stars: 0, rank: 'Novice', label: 'Musical Explorer' };
+  }
   if (accuracy >= 95) {
     return { stars: 5, rank: 'Virtuoso', label: 'Virtuoso Perfection' };
   }
@@ -94,7 +97,7 @@ export class ScoreKeeper {
       lateCount: 0,
       missCount: 0,
       totalNotes,
-      accuracy: 100,
+      accuracy: 0,
     };
   }
 
@@ -111,7 +114,7 @@ export class ScoreKeeper {
       lateCount: 0,
       missCount: 0,
       totalNotes: total,
-      accuracy: 100,
+      accuracy: 0,
     };
   }
 

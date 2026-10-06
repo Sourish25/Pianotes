@@ -25,3 +25,6 @@ dist-ssr
 
 # Android build outputs
 *.apk
+
+# Audit & critique artifacts
+critique_screenshots/

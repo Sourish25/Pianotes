@@ -17,7 +17,7 @@
   --rh-amber: #f59e0b;
   --rh-amber-glow: rgba(245, 158, 11, 0.45);
   --spring-easing: cubic-bezier(0.19, 1, 0.22, 1);
-  --gel-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --gel-bounce: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 /* Background Ambient Luminescence */
@@ -55,7 +55,7 @@
   transform-style: preserve-3d;
 }
 
-/* Chromatic Aberration Prism Rim */
+/* Luxury Monochromatic Specular Highlight Rim */
 .liquid-glass::before,
 .liquid-glass-btn::before {
   content: "";
@@ -64,13 +64,10 @@
   border-radius: inherit;
   padding: 1px;
   background: linear-gradient(
-    var(--sheen-angle, 135deg),
-    rgba(255, 255, 255, 0.7) 0%,
-    rgba(239, 68, 68, 0.4) 20%,
-    rgba(168, 85, 247, 0.4) 35%,
-    rgba(59, 130, 246, 0.4) 50%,
-    rgba(245, 158, 11, 0.4) 75%,
-    rgba(255, 255, 255, 0.6) 100%
+    135deg,
+    rgba(255, 255, 255, 0.4) 0%,
+    rgba(255, 255, 255, 0.05) 50%,
+    rgba(255, 255, 255, 0.2) 100%
   );
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
@@ -182,8 +179,8 @@
 }
 
 @keyframes floatBadge {
-  0% { transform: translateY(0px) scale(1); }
-  100% { transform: translateY(-6px) scale(1.02); }
+  0% { transform: translate(-50%, -50%) translateY(0px) scale(1); }
+  100% { transform: translate(-50%, -50%) translateY(-6px) scale(1.02); }
 }
 
 /* Left Hand / Right Hand Hand Separation Glows */

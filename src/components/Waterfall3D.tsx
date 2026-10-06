@@ -11,6 +11,7 @@ interface Waterfall3DProps {
   activeHand: HandType;
   userPlayedKeys?: number[];
   speed?: number; // visual waterfall speed
+  isDualView?: boolean;
 }
 
 interface Particle {
@@ -27,6 +28,7 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
   currentTime,
   activeHand,
   userPlayedKeys = [],
+  isDualView = false,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [activeChordName, setActiveChordName] = useState<string | null>(null);
@@ -48,6 +50,11 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
   const notesRef = useRef(notes);
   const activeHandRef = useRef(activeHand);
   const userPlayedKeysRef = useRef(userPlayedKeys);
+  const isDualViewRef = useRef(isDualView);
+
+  useEffect(() => {
+    isDualViewRef.current = isDualView;
+  }, [isDualView]);
 
   // Camera Orbit / Drag Interaction State
   const cameraAngleRef = useRef({ yaw: 0, pitch: 0, zoom: 1.0 });
@@ -471,11 +478,14 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
           ? activeStrikingPitches.reduce((acc, p) => acc + getNoteX(p), 0) / activeStrikingPitches.length
           : 0;
 
-      const targetCamX = avgX * 0.2 + cameraAngleRef.current.yaw * 16;
+      // Freeze dynamic camera sway in Dual View to keep 3D notes permanently aligned with 2D piano keys below
+      const targetCamX = isDualViewRef.current
+        ? 0
+        : avgX * 0.2 + cameraAngleRef.current.yaw * 16;
       const targetCamY = (22 + cameraAngleRef.current.pitch * 14) * cameraAngleRef.current.zoom;
       const targetCamZ = 28 * cameraAngleRef.current.zoom;
 
-      camera.position.x += (targetCamX - camera.position.x) * 0.05;
+      camera.position.x += (targetCamX - camera.position.x) * (isDualViewRef.current ? 0.2 : 0.05);
       camera.position.y += (targetCamY - camera.position.y) * 0.05;
       camera.position.z += (targetCamZ - camera.position.z) * 0.05;
       camera.lookAt(targetCamX * 0.25, -1, -12);
@@ -525,13 +535,13 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
         title="Click and drag to orbit 3D camera angle"
       />
 
-      {/* Floating Chord Badge over Strike Line */}
+      {/* Floating Chord Badge relocated to unobtrusive top-left corner */}
       {activeChordName && (
         <div
           className="floating-chord-badge"
           style={{
-            top: '32%',
-            left: '50%',
+            top: '20%',
+            left: '18%',
             transform: 'translate(-50%, -50%)',
           }}
         >

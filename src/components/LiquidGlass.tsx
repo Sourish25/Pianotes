@@ -1,47 +1,9 @@
 import React, { useState, useRef, useCallback } from 'react';
 
 /**
- * Optical SVG filters providing chromatic dispersion and gel refraction
+ * Optical SVG definitions placeholder (unused filters removed for rendering performance)
  */
-export const LiquidGlassSVGDefs: React.FC = () => {
-  return (
-    <svg style={{ position: 'absolute', width: 0, height: 0, pointerEvents: 'none' }} aria-hidden="true">
-      <defs>
-        {/* Dynamic gel displacement for tap/drag bending */}
-        <filter id="apple-liquid-disp" x="-20%" y="-20%" width="140%" height="140%">
-          <feTurbulence type="fractalNoise" baseFrequency="0.04 0.04" numOctaves="2" result="noise" />
-          <feDisplacementMap in="SourceGraphic" in2="noise" scale="3" xChannelSelector="R" yChannelSelector="G" />
-        </filter>
-
-        {/* Multi-pass Chromatic Aberration Prism Filter */}
-        <filter id="apple-chromatic-prism" x="-10%" y="-10%" width="120%" height="120%">
-          <feColorMatrix
-            in="SourceGraphic"
-            type="matrix"
-            values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0"
-            result="red"
-          />
-          <feOffset in="red" dx="1.8" dy="0" result="redShift" />
-          <feColorMatrix
-            in="SourceGraphic"
-            type="matrix"
-            values="0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0"
-            result="green"
-          />
-          <feColorMatrix
-            in="SourceGraphic"
-            type="matrix"
-            values="0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0"
-            result="blue"
-          />
-          <feOffset in="blue" dx="-1.8" dy="0" result="blueShift" />
-          <feBlend mode="screen" in="redShift" in2="green" result="rg" />
-          <feBlend mode="screen" in="rg" in2="blueShift" result="chroma" />
-        </filter>
-      </defs>
-    </svg>
-  );
-};
+export const LiquidGlassSVGDefs: React.FC = () => null;
 
 interface LiquidGlassCardProps extends React.HTMLAttributes<HTMLDivElement> {
   children: React.ReactNode;
