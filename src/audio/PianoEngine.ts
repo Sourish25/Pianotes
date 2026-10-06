@@ -1,0 +1,482 @@
+import type { InstrumentType } from '../types';
+
+export class PianoAudioEngine {
+  private static instance: PianoAudioEngine;
+  private ctx: AudioContext | null = null;
+  private masterGain: GainNode | null = null;
+  private reverbNode: ConvolverNode | null = null;
+  private dryGain: GainNode | null = null;
+  private wetGain: GainNode | null = null;
+
+  private currentInstrument: InstrumentType = 'concert-grand';
+  private sustainPedal = false;
+  private activeVoices: Map<number, { stop: () => void; isSustained: boolean }> = new Map();
+
+  private constructor() {}
+
+  public static getInstance(): PianoAudioEngine {
+    if (!PianoAudioEngine.instance) {
+      PianoAudioEngine.instance = new PianoAudioEngine();
+    }
+    return PianoAudioEngine.instance;
+  }
+
+  public init() {
+    if (this.ctx) return;
+    const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    this.ctx = new AudioCtx();
+
+    this.masterGain = this.ctx.createGain();
+    this.masterGain.gain.setValueAtTime(0.85, this.ctx.currentTime);
+
+    // Create algorithmic room impulse response for realistic piano resonance
+    this.reverbNode = this.ctx.createConvolver();
+    this.reverbNode.buffer = this.generateImpulseResponse(this.ctx, 2.2, 2.0);
+
+    this.dryGain = this.ctx.createGain();
+    this.dryGain.gain.setValueAtTime(0.75, this.ctx.currentTime);
+
+    this.wetGain = this.ctx.createGain();
+    this.wetGain.gain.setValueAtTime(0.28, this.ctx.currentTime);
+
+    this.masterGain.connect(this.dryGain);
+    this.masterGain.connect(this.reverbNode);
+    this.reverbNode.connect(this.wetGain);
+
+    this.dryGain.connect(this.ctx.destination);
+    this.wetGain.connect(this.ctx.destination);
+  }
+
+  private generateImpulseResponse(ctx: AudioContext, duration: number, decay: number): AudioBuffer {
+    const sampleRate = ctx.sampleRate;
+    const length = sampleRate * duration;
+    const impulse = ctx.createBuffer(2, length, sampleRate);
+    const left = impulse.getChannelData(0);
+    const right = impulse.getChannelData(1);
+
+    for (let i = 0; i < length; i++) {
+      const n = i / length;
+      const factor = Math.exp(-n * decay);
+      left[i] = (Math.random() * 2 - 1) * factor;
+      right[i] = (Math.random() * 2 - 1) * factor;
+    }
+    return impulse;
+  }
+
+  public setInstrument(instrument: InstrumentType) {
+    this.currentInstrument = instrument;
+    if (this.wetGain && this.ctx) {
+      // Adjust reverb wetness per instrument
+      const wetLevels: Record<InstrumentType, number> = {
+        'concert-grand': 0.35,
+        'upright': 0.18,
+        'neo-rhodes': 0.30,
+        'dx7-ep': 0.25,
+        'lofi-tape': 0.15,
+        'celesta': 0.45,
+      };
+      this.wetGain.gain.setTargetAtTime(wetLevels[instrument] ?? 0.25, this.ctx.currentTime, 0.05);
+    }
+  }
+
+  public getInstrument(): InstrumentType {
+    return this.currentInstrument;
+  }
+
+  public setSustainPedal(down: boolean) {
+    this.sustainPedal = down;
+    if (!down) {
+      // Release all sustained voices that are waiting for pedal lift
+      this.activeVoices.forEach((voice, pitch) => {
+        if (voice.isSustained) {
+          voice.stop();
+          this.activeVoices.delete(pitch);
+        }
+      });
+    }
+  }
+
+  public isSustainPedalDown(): boolean {
+    return this.sustainPedal;
+  }
+
+  public midiToFrequency(midi: number): number {
+    return 440 * Math.pow(2, (midi - 69) / 12);
+  }
+
+  public playNote(midi: number, velocity: number = 0.8) {
+    this.init();
+    if (!this.ctx || !this.masterGain) return;
+    if (this.ctx.state === 'suspended') {
+      this.ctx.resume();
+    }
+
+    // Stop existing note if already ringing
+    if (this.activeVoices.has(midi)) {
+      this.activeVoices.get(midi)?.stop();
+      this.activeVoices.delete(midi);
+    }
+
+    const freq = this.midiToFrequency(midi);
+    const now = this.ctx.currentTime;
+    const gainNode = this.ctx.createGain();
+
+    // Stereo panning based on piano key position (low keys left, high keys right)
+    const panNode = this.ctx.createStereoPanner ? this.ctx.createStereoPanner() : null;
+    if (panNode) {
+      const pan = Math.max(-0.85, Math.min(0.85, ((midi - 60) / 36)));
+      panNode.pan.setValueAtTime(pan, now);
+      gainNode.connect(panNode);
+      panNode.connect(this.masterGain);
+    } else {
+      gainNode.connect(this.masterGain);
+    }
+
+    let stopVoice: () => void = () => {};
+
+    switch (this.currentInstrument) {
+      case 'concert-grand':
+        stopVoice = this.synthConcertGrand(midi, freq, velocity, gainNode, now);
+        break;
+      case 'upright':
+        stopVoice = this.synthUpright(midi, freq, velocity, gainNode, now);
+        break;
+      case 'neo-rhodes':
+        stopVoice = this.synthRhodes(midi, freq, velocity, gainNode, now);
+        break;
+      case 'dx7-ep':
+        stopVoice = this.synthDX7(midi, freq, velocity, gainNode, now);
+        break;
+      case 'lofi-tape':
+        stopVoice = this.synthLoFiTape(midi, freq, velocity, gainNode, now);
+        break;
+      case 'celesta':
+        stopVoice = this.synthCelesta(midi, freq, velocity, gainNode, now);
+        break;
+    }
+
+    this.activeVoices.set(midi, {
+      stop: stopVoice,
+      isSustained: false,
+    });
+  }
+
+  public stopNote(midi: number) {
+    const voice = this.activeVoices.get(midi);
+    if (!voice) return;
+
+    if (this.sustainPedal) {
+      voice.isSustained = true;
+    } else {
+      voice.stop();
+      this.activeVoices.delete(midi);
+    }
+  }
+
+  /* --- Instrument Synthesizers --- */
+
+  private synthConcertGrand(
+    _midi: number,
+    freq: number,
+    velocity: number,
+    gainNode: GainNode,
+    now: number
+  ): () => void {
+    if (!this.ctx) return () => {};
+
+    // Hammer attack click transient
+    const clickOsc = this.ctx.createOscillator();
+    const clickGain = this.ctx.createGain();
+    clickOsc.type = 'triangle';
+    clickOsc.frequency.setValueAtTime(freq * 3.5, now);
+    clickGain.gain.setValueAtTime(velocity * 0.18, now);
+    clickGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.04);
+    clickOsc.connect(clickGain);
+    clickGain.connect(gainNode);
+    clickOsc.start(now);
+    clickOsc.stop(now + 0.05);
+
+    // Multi-harmonic overtone synthesis
+    const harmonics = [1, 2, 3, 4, 5, 6];
+    const amplitudes = [1.0, 0.45, 0.22, 0.12, 0.06, 0.03];
+    const oscs: OscillatorNode[] = [];
+
+    gainNode.gain.setValueAtTime(0.0001, now);
+    gainNode.gain.linearRampToValueAtTime(velocity * 0.9, now + 0.008);
+    // Natural long exponential decay
+    gainNode.gain.exponentialRampToValueAtTime(0.0001, now + 5.5);
+
+    harmonics.forEach((harmonic, index) => {
+      if (!this.ctx) return;
+      const osc = this.ctx.createOscillator();
+      const hGain = this.ctx.createGain();
+      // Slight string inharmonicity
+      const inharmonicFactor = 1 + index * 0.0015;
+      osc.type = index === 0 ? 'sine' : index % 2 === 0 ? 'triangle' : 'sine';
+      osc.frequency.setValueAtTime(freq * harmonic * inharmonicFactor, now);
+
+      hGain.gain.setValueAtTime(amplitudes[index] ?? 0.05, now);
+      // High harmonics decay faster
+      hGain.gain.exponentialRampToValueAtTime(0.0001, now + 5.5 / (index + 1));
+
+      osc.connect(hGain);
+      hGain.connect(gainNode);
+      osc.start(now);
+      oscs.push(osc);
+    });
+
+    return () => {
+      if (!this.ctx) return;
+      const releaseTime = this.ctx.currentTime;
+      gainNode.gain.cancelScheduledValues(releaseTime);
+      gainNode.gain.setValueAtTime(gainNode.gain.value, releaseTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, releaseTime + 0.25);
+      setTimeout(() => {
+        oscs.forEach(o => {
+          try { o.stop(); } catch { /* ignore */ }
+        });
+      }, 300);
+    };
+  }
+
+  private synthUpright(
+    _midi: number,
+    freq: number,
+    velocity: number,
+    gainNode: GainNode,
+    now: number
+  ): () => void {
+    if (!this.ctx) return () => {};
+
+    // Felted attack with soft low-pass filter
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(2600, now);
+    filter.connect(gainNode);
+
+    gainNode.gain.setValueAtTime(0.0001, now);
+    gainNode.gain.linearRampToValueAtTime(velocity * 0.85, now + 0.015);
+    gainNode.gain.exponentialRampToValueAtTime(0.0001, now + 4.0);
+
+    const osc1 = this.ctx.createOscillator();
+    osc1.type = 'triangle';
+    osc1.frequency.setValueAtTime(freq, now);
+
+    const osc2 = this.ctx.createOscillator();
+    osc2.type = 'sine';
+    // Subtle double-string detune for upright honky-tonk warmth
+    osc2.frequency.setValueAtTime(freq * 1.002, now);
+
+    osc1.connect(filter);
+    osc2.connect(filter);
+    osc1.start(now);
+    osc2.start(now);
+
+    return () => {
+      if (!this.ctx) return;
+      const releaseTime = this.ctx.currentTime;
+      gainNode.gain.cancelScheduledValues(releaseTime);
+      gainNode.gain.setValueAtTime(gainNode.gain.value, releaseTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, releaseTime + 0.18);
+      setTimeout(() => {
+        try { osc1.stop(); osc2.stop(); } catch { /* ignore */ }
+      }, 220);
+    };
+  }
+
+  private synthRhodes(
+    _midi: number,
+    freq: number,
+    velocity: number,
+    gainNode: GainNode,
+    now: number
+  ): () => void {
+    if (!this.ctx) return () => {};
+
+    // Neo-Soul Rhodes: Bell Tine + Warm Body + Tremolo
+    const bodyOsc = this.ctx.createOscillator();
+    bodyOsc.type = 'sine';
+    bodyOsc.frequency.setValueAtTime(freq, now);
+
+    const tineOsc = this.ctx.createOscillator();
+    tineOsc.type = 'sine';
+    tineOsc.frequency.setValueAtTime(freq * 4.01, now); // 4th harmonic bell tine
+
+    const tineGain = this.ctx.createGain();
+    tineGain.gain.setValueAtTime(velocity * 0.5, now);
+    tineGain.gain.exponentialRampToValueAtTime(0.001, now + 0.35); // quick chime ring
+
+    // Tremolo LFO
+    const tremolo = this.ctx.createOscillator();
+    const tremoloGain = this.ctx.createGain();
+    tremolo.frequency.setValueAtTime(4.8, now); // 4.8 Hz gentle soul vibe
+    tremoloGain.gain.setValueAtTime(0.12, now);
+    tremolo.connect(tremoloGain.gain);
+
+    gainNode.gain.setValueAtTime(0.0001, now);
+    gainNode.gain.linearRampToValueAtTime(velocity * 0.8, now + 0.01);
+    gainNode.gain.exponentialRampToValueAtTime(0.0001, now + 5.0);
+
+    bodyOsc.connect(gainNode);
+    tineOsc.connect(tineGain);
+    tineGain.connect(gainNode);
+
+    bodyOsc.start(now);
+    tineOsc.start(now);
+    tremolo.start(now);
+
+    return () => {
+      if (!this.ctx) return;
+      const releaseTime = this.ctx.currentTime;
+      gainNode.gain.cancelScheduledValues(releaseTime);
+      gainNode.gain.setValueAtTime(gainNode.gain.value, releaseTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, releaseTime + 0.22);
+      setTimeout(() => {
+        try {
+          bodyOsc.stop();
+          tineOsc.stop();
+          tremolo.stop();
+        } catch { /* ignore */ }
+      }, 250);
+    };
+  }
+
+  private synthDX7(
+    _midi: number,
+    freq: number,
+    velocity: number,
+    gainNode: GainNode,
+    now: number
+  ): () => void {
+    if (!this.ctx) return () => {};
+
+    // 2-Operator FM synthesis: Modulator -> Carrier
+    const carrier = this.ctx.createOscillator();
+    carrier.type = 'sine';
+    carrier.frequency.setValueAtTime(freq, now);
+
+    const modulator = this.ctx.createOscillator();
+    modulator.type = 'sine';
+    modulator.frequency.setValueAtTime(freq * 14.0, now); // FM metallic index
+
+    const modIndex = this.ctx.createGain();
+    modIndex.gain.setValueAtTime(freq * 2.2 * velocity, now);
+    modIndex.gain.exponentialRampToValueAtTime(0.01, now + 0.6); // sharp metallic pop to clean tone
+
+    modulator.connect(modIndex);
+    modIndex.connect(carrier.frequency);
+
+    gainNode.gain.setValueAtTime(0.0001, now);
+    gainNode.gain.linearRampToValueAtTime(velocity * 0.82, now + 0.006);
+    gainNode.gain.exponentialRampToValueAtTime(0.0001, now + 6.0);
+
+    carrier.connect(gainNode);
+    carrier.start(now);
+    modulator.start(now);
+
+    return () => {
+      if (!this.ctx) return;
+      const releaseTime = this.ctx.currentTime;
+      gainNode.gain.cancelScheduledValues(releaseTime);
+      gainNode.gain.setValueAtTime(gainNode.gain.value, releaseTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, releaseTime + 0.2);
+      setTimeout(() => {
+        try { carrier.stop(); modulator.stop(); } catch { /* ignore */ }
+      }, 220);
+    };
+  }
+
+  private synthLoFiTape(
+    _midi: number,
+    freq: number,
+    velocity: number,
+    gainNode: GainNode,
+    now: number
+  ): () => void {
+    if (!this.ctx) return () => {};
+
+    // Lo-Fi Tape: Wow/flutter pitch drift + warm lowpass filter
+    const lfo = this.ctx.createOscillator();
+    const lfoGain = this.ctx.createGain();
+    lfo.frequency.setValueAtTime(2.8 + Math.random() * 0.8, now); // slow tape flutter
+    lfoGain.gain.setValueAtTime(freq * 0.006, now); // subtle microtonal pitch drift
+    lfo.connect(lfoGain);
+
+    const osc = this.ctx.createOscillator();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(freq, now);
+    lfoGain.connect(osc.frequency);
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(2200, now); // vintage tape head cutoff
+
+    gainNode.gain.setValueAtTime(0.0001, now);
+    gainNode.gain.linearRampToValueAtTime(velocity * 0.85, now + 0.02);
+    gainNode.gain.exponentialRampToValueAtTime(0.0001, now + 4.5);
+
+    osc.connect(filter);
+    filter.connect(gainNode);
+
+    lfo.start(now);
+    osc.start(now);
+
+    return () => {
+      if (!this.ctx) return;
+      const releaseTime = this.ctx.currentTime;
+      gainNode.gain.cancelScheduledValues(releaseTime);
+      gainNode.gain.setValueAtTime(gainNode.gain.value, releaseTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, releaseTime + 0.24);
+      setTimeout(() => {
+        try { osc.stop(); lfo.stop(); } catch { /* ignore */ }
+      }, 280);
+    };
+  }
+
+  private synthCelesta(
+    _midi: number,
+    freq: number,
+    velocity: number,
+    gainNode: GainNode,
+    now: number
+  ): () => void {
+    if (!this.ctx) return () => {};
+
+    // Pure crystalline chime bells
+    const osc1 = this.ctx.createOscillator();
+    osc1.type = 'sine';
+    osc1.frequency.setValueAtTime(freq * 2.0, now); // Octave up bell chime
+
+    const osc2 = this.ctx.createOscillator();
+    osc2.type = 'sine';
+    osc2.frequency.setValueAtTime(freq * 5.4, now); // Inharmonic chime harmonic
+
+    const osc2Gain = this.ctx.createGain();
+    osc2Gain.gain.setValueAtTime(velocity * 0.35, now);
+    osc2Gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+
+    gainNode.gain.setValueAtTime(0.0001, now);
+    gainNode.gain.linearRampToValueAtTime(velocity * 0.75, now + 0.004);
+    gainNode.gain.exponentialRampToValueAtTime(0.0001, now + 4.5);
+
+    osc1.connect(gainNode);
+    osc2.connect(osc2Gain);
+    osc2Gain.connect(gainNode);
+
+    osc1.start(now);
+    osc2.start(now);
+
+    return () => {
+      if (!this.ctx) return;
+      const releaseTime = this.ctx.currentTime;
+      gainNode.gain.cancelScheduledValues(releaseTime);
+      gainNode.gain.setValueAtTime(gainNode.gain.value, releaseTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, releaseTime + 0.15);
+      setTimeout(() => {
+        try { osc1.stop(); osc2.stop(); } catch { /* ignore */ }
+      }, 200);
+    };
+  }
+}
+
+export const pianoEngine = PianoAudioEngine.getInstance();
