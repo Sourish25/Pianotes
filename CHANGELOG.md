@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.0] - 2026-10-06
+
+### Added & Improved
+- **Native Android APK Architecture & Capacitor 8 Integration**:
+  - Configured `@capacitor/core`, `@capacitor/cli`, and `@capacitor/android` with app ID `com.pianotes.app` and app name `Pianotes`.
+  - Configured `capacitor.config.ts` with Android hardware acceleration, secure origin scheme, and native Android lifecycle hooks.
+  - Initialized native Android workspace with Gradle 8.14 and Android SDK 36.
+- **Android Manifest & Device Permissions**:
+  - Added `android.permission.RECORD_AUDIO` for real-time acoustic piano microphone listening.
+  - Added `android.permission.INTERNET` for social reels and cloud sheet synchronization.
+  - Added `android.permission.MODIFY_AUDIO_SETTINGS` for low-latency native audio buffer optimization.
+  - Configured `android.software.midi` and `android.hardware.microphone` hardware features for USB/Bluetooth MIDI keyboards.
+  - Enabled hardware acceleration (`android:hardwareAccelerated="true"`) for 60 FPS Three.js 3D waterfall rendering.
+- **Production-Grade GitHub Actions CI/CD Pipeline (`.github/workflows/build-apk.yml`)**:
+  - Automated workflow building both `Pianotes-release.apk` and `Pianotes-debug.apk`.
+  - Automated APK artifact upload (30-day retention) on push and pull requests to `master`.
+  - Automated GitHub Releases publishing on tag releases (`v*`).
+- **Local APK Compilation Verified**:
+  - Verified local build pipeline: `app-debug.apk` (4.4 MB) and signed `app-release.apk` (3.4 MB) compile cleanly via `./gradlew assembleDebug` and `./gradlew assembleRelease`.
+  - Added `npm run cap:sync` and `npm run cap:open` scripts to `package.json`.
+
+---
+
 ## [1.1.0] - 2026-10-06
 
 ### Fixed & Resolved

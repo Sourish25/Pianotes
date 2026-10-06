@@ -2,11 +2,13 @@
 
 <div align="center">
 
-![Version: 1.1.0](https://img.shields.io/badge/Release-v1.1.0-blue.svg?style=for-the-badge)
+![Version: 1.2.0](https://img.shields.io/badge/Release-v1.2.0-blue.svg?style=for-the-badge)
+![Android](https://img.shields.io/badge/Android_APK-3DDC84?style=for-the-badge&logo=android&logoColor=white)
 ![License: MIT](https://img.shields.io/badge/License-MIT-purple.svg?style=for-the-badge)
 ![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)
 ![React 19](https://img.shields.io/badge/React_19-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)
 ![Three.js](https://img.shields.io/badge/Three.js-000000?style=for-the-badge&logo=three.dot.js&logoColor=white)
+![Capacitor](https://img.shields.io/badge/Capacitor_8-119EFF?style=for-the-badge&logo=capacitor&logoColor=white)
 ![Web Audio](https://img.shields.io/badge/Web_Audio_API-f59e0b?style=for-the-badge&logo=audio&logoColor=white)
 ![Web MIDI](https://img.shields.io/badge/Web_MIDI_API-emerald?style=for-the-badge&logo=midi&logoColor=white)
 ![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=for-the-badge)
@@ -201,6 +203,50 @@ npm run lint
 
 ---
 
+## 📱 Android APK & Native Mobile Build
+
+Pianotes runs natively on Android via **Capacitor 8**, featuring hardware-accelerated 60 FPS WebGL rendering, native microphone pitch capture (`RECORD_AUDIO`), and low-latency USB/Bluetooth MIDI keyboard support (`android.software.midi`).
+
+### Download Pre-built APKs
+You can download the latest installable APKs directly from the [GitHub Releases](https://github.com/Sourish25/Pianotes/releases):
+- **`Pianotes-release.apk`**: Production release APK, signed and ready to sideload.
+- **`Pianotes-debug.apk`**: Debug build with Chrome remote web inspector enabled.
+
+### Building APK Locally
+
+1. **Build web assets and synchronize native platform**:
+   ```bash
+   npm run build
+   npm run cap:sync
+   ```
+
+2. **Assemble Debug or Release APK with Gradle**:
+   ```bash
+   # On Windows:
+   cd android
+   .\gradlew.bat assembleDebug      # Outputs android/app/build/outputs/apk/debug/app-debug.apk
+   .\gradlew.bat assembleRelease    # Outputs android/app/build/outputs/apk/release/app-release.apk
+
+   # On Linux/macOS:
+   cd android
+   ./gradlew assembleDebug
+   ./gradlew assembleRelease
+   ```
+
+3. **Install on connected Android device via ADB**:
+   ```bash
+   adb install -r android/app/build/outputs/apk/release/app-release.apk
+   ```
+
+### Automated CI/CD Pipeline
+Every push to `master` and release tag `v*` automatically triggers our GitHub Actions workflow ([`.github/workflows/build-apk.yml`](.github/workflows/build-apk.yml)) to:
+- Run linting and unit tests.
+- Compile both debug and release APK packages.
+- Upload build artifacts to GitHub Actions.
+- Publish release assets directly to GitHub Releases on version tags.
+
+---
+
 ## 🗺 Roadmap
 
 - [x] Apple Liquid Glass UI & Gel-bending spring mechanics.
@@ -208,11 +254,12 @@ npm run lint
 - [x] Standalone 88-key playable piano with glissando and mini-map ribbon.
 - [x] 9-Instrument synthesis engine library.
 - [x] 4-Stage DSP effects rack (Reverb, Chorus, Delay, Tape Drive).
-- [x] "Wait-for-Me" interactive learning mode.
+- [x] "Wait-for-Me" interactive learning mode with persistent note satisfaction.
 - [x] Real-time IRL acoustic microphone pitch detector.
 - [x] Social reel ingestion modal & Demucs / ByteDance AMT pipeline.
+- [x] WebMIDI API hardware keyboard input connection.
+- [x] Native Android APK & Capacitor 8 build pipeline with automated CI/CD.
 - [ ] WebAssembly-accelerated ONNX runtime for on-device reel transcription.
-- [ ] WebMIDI API hardware keyboard input connection.
 - [ ] Multiplayer collaborative piano duet room via WebRTC.
 
 ---

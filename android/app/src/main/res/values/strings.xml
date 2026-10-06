@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Pianotes</string>
+    <string name="title_activity_main">Pianotes</string>
+    <string name="package_name">com.pianotes.app</string>
+    <string name="custom_url_scheme">com.pianotes.app</string>
+</resources>
