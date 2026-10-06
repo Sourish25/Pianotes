@@ -21,19 +21,20 @@ import { Waterfall3D } from './components/Waterfall3D';
 import { PlayablePiano2D } from './components/PlayablePiano2D';
 import { PracticeBar } from './components/PracticeBar';
 import { IngestionDrawer } from './components/IngestionDrawer';
-import { InstrumentSelector } from './components/InstrumentSelector';
-import { MetronomeStudio } from './components/MetronomeStudio';
+import { StudioDrawer } from './components/StudioDrawer';
 import { VirtuosoSummaryModal } from './components/VirtuosoSummaryModal';
+import { triggerHaptic } from './utils/haptics';
 import {
   Sparkles,
   Music,
   ChevronDown,
   Info,
   Disc,
-  Radio,
   Play,
   UploadCloud,
   X,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 
 export const App: React.FC = () => {
@@ -51,6 +52,37 @@ export const App: React.FC = () => {
   const [instrument, setInstrument] = useState<InstrumentType>('concert-grand');
   const [viewportMode, setViewportMode] = useState<ViewportMode>('dual');
   const [sustainPedal, setSustainPedal] = useState<boolean>(false);
+
+  // Zen Mode & User Inactivity Detection
+  const [isZenMode, setIsZenMode] = useState<boolean>(false);
+  const [isUserActive, setIsUserActive] = useState<boolean>(true);
+  const userActivityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!isPlaying) {
+      return;
+    }
+
+    const reportActivity = () => {
+      setIsUserActive(true);
+      if (userActivityTimerRef.current) clearTimeout(userActivityTimerRef.current);
+      userActivityTimerRef.current = setTimeout(() => {
+        setIsUserActive(false);
+      }, 2800);
+    };
+
+    userActivityTimerRef.current = setTimeout(() => {
+      setIsUserActive(false);
+    }, 2800);
+
+    window.addEventListener('pointerdown', reportActivity);
+    window.addEventListener('pointermove', reportActivity);
+    return () => {
+      if (userActivityTimerRef.current) clearTimeout(userActivityTimerRef.current);
+      window.removeEventListener('pointerdown', reportActivity);
+      window.removeEventListener('pointermove', reportActivity);
+    };
+  }, [isPlaying]);
 
   // Practice Modes
   const [waitForMe, setWaitForMe] = useState<boolean>(false);
@@ -72,9 +104,9 @@ export const App: React.FC = () => {
 
   // Drawers & Modals
   const [isIngestionOpen, setIsIngestionOpen] = useState<boolean>(false);
-  const [isInstrumentOpen, setIsInstrumentOpen] = useState<boolean>(false);
+  const [isStudioOpen, setIsStudioOpen] = useState<boolean>(false);
+  const [studioInitialTab, setStudioInitialTab] = useState<'instruments' | 'dsp' | 'metronome'>('instruments');
   const [showInfoModal, setShowInfoModal] = useState<boolean>(false);
-  const [showMetronomeStudio, setShowMetronomeStudio] = useState<boolean>(false);
   const [showVirtuosoSummary, setShowVirtuosoSummary] = useState<boolean>(false);
 
   // Performance Scoring & Gamification
@@ -250,6 +282,11 @@ export const App: React.FC = () => {
           scoredNoteIdsRef.current.add(hitNote.id);
           setPerformanceScore(scoreKeeperRef.current.getState());
           setLatestStrike(feedback);
+          if (feedback.rating === 'PERFECT') {
+            triggerHaptic('success');
+          } else if (feedback.rating === 'GREAT') {
+            triggerHaptic('light');
+          }
         }
       }
 
@@ -450,6 +487,7 @@ export const App: React.FC = () => {
               const fb = scoreKeeperRef.current.registerMiss(n.pitch);
               setPerformanceScore(scoreKeeperRef.current.getState());
               setLatestStrike(fb);
+              triggerHaptic('warning');
             }
           });
         }
@@ -601,23 +639,31 @@ export const App: React.FC = () => {
       <LiquidGlassSVGDefs />
 
       {/* Top Glass Navigation Bar */}
-      <header className="relative w-full z-40 px-6 py-3 flex items-center justify-between border-b border-white/10 bg-[#07080e]/60 backdrop-blur-2xl">
+      <header
+        className={`relative w-full z-40 px-6 py-2.5 flex items-center justify-between border-b border-white/10 bg-[#07080e]/60 backdrop-blur-2xl transition-all duration-300 ${
+          isZenMode
+            ? isUserActive
+              ? 'opacity-85 translate-y-0'
+              : 'opacity-0 pointer-events-none -translate-y-full'
+            : 'opacity-100 translate-y-0'
+        }`}
+      >
         {/* Brand / Logo */}
         <div className="flex items-center gap-3">
-          <div className="relative w-9 h-9 rounded-2xl flex items-center justify-center bg-gradient-to-br from-purple-600 to-amber-500 shadow-[0_0_18px_rgba(168,85,247,0.5)] border border-white/30">
-            <Music className="w-5 h-5 text-white" />
+          <div className="relative w-8 h-8 rounded-xl flex items-center justify-center bg-gradient-to-br from-purple-600 to-amber-500 shadow-[0_0_16px_rgba(168,85,247,0.4)] border border-white/30">
+            <Music className="w-4 h-4 text-white" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-base font-extrabold tracking-tight text-white">
+              <span className="text-sm font-extrabold tracking-tight text-white">
                 PIANOTES
               </span>
-              <span className="px-1.5 py-0.5 rounded-full text-[9px] font-mono font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                PRO DEMO
+              <span className="px-1.5 py-0.2 rounded-full text-[8.5px] font-mono font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                PRO
               </span>
             </div>
-            <p className="text-[10px] text-zinc-400 font-medium">
-              Apple Liquid Glass 1:1 Engine
+            <p className="text-[9.5px] text-zinc-400 font-medium">
+              Apple Liquid Glass Engine
             </p>
           </div>
         </div>
@@ -626,7 +672,7 @@ export const App: React.FC = () => {
         <div className="flex items-center gap-1 p-1 rounded-full bg-white/5 border border-white/10 shadow-inner">
           <button
             onClick={() => setViewportMode('waterfall3d')}
-            className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all ${
+            className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${
               viewportMode === 'waterfall3d'
                 ? 'bg-purple-600/40 text-purple-200 border border-purple-400/40 shadow-sm'
                 : 'text-zinc-400 hover:text-white'
@@ -636,7 +682,7 @@ export const App: React.FC = () => {
           </button>
           <button
             onClick={() => setViewportMode('dual')}
-            className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all ${
+            className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${
               viewportMode === 'dual'
                 ? 'bg-white/20 text-white border border-white/30 shadow-sm'
                 : 'text-zinc-400 hover:text-white'
@@ -646,7 +692,7 @@ export const App: React.FC = () => {
           </button>
           <button
             onClick={() => setViewportMode('piano2d')}
-            className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all ${
+            className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${
               viewportMode === 'piano2d'
                 ? 'bg-amber-500/30 text-amber-200 border border-amber-400/40 shadow-sm'
                 : 'text-zinc-400 hover:text-white'
@@ -656,54 +702,61 @@ export const App: React.FC = () => {
           </button>
         </div>
 
-        {/* Right Section: Song Library & Instrument Pills */}
-        <div className="flex items-center gap-3">
+        {/* Right Section: Song Library & Studio Pills */}
+        <div className="flex items-center gap-2.5">
           {/* Connected Web MIDI device badge */}
           {connectedMidiDevice && (
-            <div className="hidden lg:flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 text-xs font-mono shadow-[0_0_12px_rgba(16,185,129,0.3)]">
+            <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 text-xs font-mono shadow-[0_0_12px_rgba(16,185,129,0.3)]">
               <Disc className="w-3.5 h-3.5 text-emerald-400 animate-spin" />
               <span>MIDI: {connectedMidiDevice}</span>
             </div>
           )}
 
-          {/* Metronome Studio Button */}
-          <button
-            onClick={() => setShowMetronomeStudio(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white/5 border border-white/10 text-zinc-300 hover:text-white hover:bg-white/10 transition-all"
-            title="Concert Pitch & Metronome Studio"
-          >
-            <Radio className="w-3.5 h-3.5 text-purple-400" />
-            <span className="hidden sm:inline">Pitch & Metronome</span>
-          </button>
-
           {/* Active Song Selector Pill */}
           <LiquidGlassButton
             onClick={() => setIsIngestionOpen(true)}
-            className="flex items-center gap-2 !px-3.5 !py-1.5 text-xs text-zinc-200"
+            className="flex items-center gap-2 !px-3 !py-1 text-xs text-zinc-200"
           >
             <Music className="w-3.5 h-3.5 text-purple-400" />
-            <span className="font-semibold max-w-[140px] truncate">{currentSong.title}</span>
+            <span className="font-semibold max-w-[130px] truncate">{currentSong.title}</span>
             <ChevronDown className="w-3.5 h-3.5 text-zinc-400" />
           </LiquidGlassButton>
 
-          {/* Active Instrument Pill */}
+          {/* Studio & Acoustic FX Engine Pill */}
           <LiquidGlassButton
-            onClick={() => setIsInstrumentOpen(true)}
+            onClick={() => {
+              setStudioInitialTab('instruments');
+              setIsStudioOpen(true);
+            }}
             variant="amber"
-            className="flex items-center gap-2 !px-3.5 !py-1.5 text-xs font-medium"
+            className="flex items-center gap-2 !px-3 !py-1 text-xs font-medium"
+            title="Acoustic Studio, Instruments & Metronome"
           >
             <Sparkles className="w-3.5 h-3.5 text-amber-400" />
             <span className="capitalize">{instrument.replace('-', ' ')}</span>
             <ChevronDown className="w-3.5 h-3.5 text-zinc-400" />
           </LiquidGlassButton>
 
+          {/* Zen Mode Toggle */}
+          <button
+            onClick={() => setIsZenMode(!isZenMode)}
+            className={`p-1.5 rounded-full border transition-all ${
+              isZenMode
+                ? 'bg-purple-600/30 border-purple-400 text-purple-200 shadow-[0_0_10px_rgba(168,85,247,0.3)]'
+                : 'text-zinc-400 hover:text-white bg-white/5 border border-white/10 hover:bg-white/10'
+            }`}
+            title={isZenMode ? 'Exit Zen Mode' : 'Immersive Zen Mode'}
+          >
+            {isZenMode ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+          </button>
+
           {/* Info Modal Trigger */}
           <button
             onClick={() => setShowInfoModal(true)}
-            className="p-2 rounded-full text-zinc-400 hover:text-white bg-white/5 border border-white/10 hover:bg-white/10 transition-colors"
+            className="p-1.5 rounded-full text-zinc-400 hover:text-white bg-white/5 border border-white/10 hover:bg-white/10 transition-colors"
             title="Aesthetic & Technology Specs"
           >
-            <Info className="w-4 h-4" />
+            <Info className="w-3.5 h-3.5" />
           </button>
         </div>
       </header>
@@ -845,15 +898,23 @@ export const App: React.FC = () => {
           setLoopA(null);
           setLoopB(null);
         }}
-        onOpenInstruments={() => setIsInstrumentOpen(true)}
+        onOpenInstruments={() => {
+          setStudioInitialTab('instruments');
+          setIsStudioOpen(true);
+        }}
         onOpenIngestion={() => setIsIngestionOpen(true)}
         isRecording={isRecording}
         recordingTime={recordingTime}
         onToggleRecord={handleToggleRecord}
-        onOpenMetronomeStudio={() => setShowMetronomeStudio(true)}
+        onOpenMetronomeStudio={() => {
+          setStudioInitialTab('metronome');
+          setIsStudioOpen(true);
+        }}
         isMetronomeActive={isMetronomeActive}
         performanceScore={performanceScore}
         onOpenVirtuosoSummary={() => setShowVirtuosoSummary(true)}
+        isZenMode={isZenMode}
+        onToggleZenMode={() => setIsZenMode(!isZenMode)}
       />
 
       {/* Ingestion & Song Library Drawer */}
@@ -864,22 +925,15 @@ export const App: React.FC = () => {
         currentSongId={currentSong.id}
       />
 
-      {/* Instrument Sound Profile Switcher Drawer */}
-      <InstrumentSelector
-        isOpen={isInstrumentOpen}
-        onClose={() => setIsInstrumentOpen(false)}
+      {/* Unified Apple Liquid Glass Studio Sheet (Instruments, DSP FX, Metronome & Pitch) */}
+      <StudioDrawer
+        isOpen={isStudioOpen}
+        onClose={() => setIsStudioOpen(false)}
         currentInstrument={instrument}
         onSelectInstrument={setInstrument}
+        currentSongBpm={currentSong.bpm}
+        initialTab={studioInitialTab}
       />
-
-      {/* Concert Pitch & Metronome Studio */}
-      {showMetronomeStudio && (
-        <MetronomeStudio
-          isOpen={showMetronomeStudio}
-          onClose={() => setShowMetronomeStudio(false)}
-          currentSongBpm={currentSong.bpm}
-        />
-      )}
 
       {/* Virtuoso Performance Summary Modal */}
       <VirtuosoSummaryModal

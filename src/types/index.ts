@@ -14,8 +14,11 @@ export type InstrumentType =
 export interface DSPSettings {
   reverb: boolean;
   reverbWet: number;
+  reverbDecay?: number;
+  reverbDampening?: number;
   chorus: boolean;
   chorusDepth: number;
+  chorusRate?: number;
   delay: boolean;
   delayFeedback: number;
   tapeDrive: boolean;

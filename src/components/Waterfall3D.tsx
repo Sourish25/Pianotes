@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useMemo } from 'react';
 import * as THREE from 'three';
 import type { NoteEvent, HandType } from '../types';
 import { detectChord } from '../utils/chordDetector';
+import { Camera } from 'lucide-react';
 
 interface Waterfall3DProps {
   notes: NoteEvent[];
@@ -552,28 +553,17 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
         </div>
       )}
 
-      {/* Hand Legend Pill (Violet / Amber) */}
-      <div className="absolute top-6 left-6 flex items-center gap-3 z-30 pointer-events-none">
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#120f24]/80 border border-purple-500/30 backdrop-blur-md shadow-lg">
-          <div className="w-2.5 h-2.5 rounded-full bg-purple-500 shadow-[0_0_8px_#a855f7]" />
-          <span className="text-xs font-semibold text-purple-200">Left Hand (Violet)</span>
-        </div>
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#1e1708]/80 border border-amber-500/30 backdrop-blur-md shadow-lg">
-          <div className="w-2.5 h-2.5 rounded-full bg-amber-500 shadow-[0_0_8px_#f59e0b]" />
-          <span className="text-xs font-semibold text-amber-200">Right Hand (Amber)</span>
-        </div>
-      </div>
-
-      {/* 3D Camera Orbit & Zoom Reset Pill */}
-      <div className="absolute top-6 right-6 flex items-center gap-2 z-30">
+      {/* Subtle 3D Camera Orbit & Zoom Reset Pill */}
+      <div className="absolute top-3 right-3 flex items-center gap-2 z-30 pointer-events-auto">
         <button
           onClick={() => {
             cameraAngleRef.current = { yaw: 0, pitch: 0, zoom: 1.0 };
           }}
-          className="px-3 py-1.5 rounded-full text-xs font-semibold text-zinc-300 hover:text-white bg-[#0e101a]/80 hover:bg-[#181a28] border border-white/15 backdrop-blur-md shadow-lg transition-all active:scale-95"
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium text-zinc-400 hover:text-white bg-black/40 hover:bg-black/60 border border-white/10 backdrop-blur-md shadow-md transition-all active:scale-95"
           title="Reset camera orbit and zoom (or double-click canvas)"
         >
-          Reset 3D View
+          <Camera className="w-3 h-3 text-purple-400" />
+          <span className="hidden sm:inline">Reset 3D</span>
         </button>
       </div>
     </div>

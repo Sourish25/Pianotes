@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { HandType, PerformanceScore } from '../types';
-import { LiquidGlassCard, LiquidGlassButton } from './LiquidGlass';
+import { triggerHaptic } from '../utils/haptics';
 import {
   Play,
   Pause,
@@ -9,11 +9,13 @@ import {
   Rewind,
   Mic,
   MicOff,
-  Clock,
   Sparkles,
-  Radio,
   Zap,
-  Trophy,
+  Repeat,
+  Radio,
+  Sliders,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 
 interface PracticeBarProps {
@@ -37,8 +39,8 @@ interface PracticeBarProps {
   onSetLoopA: () => void;
   onSetLoopB: () => void;
   onClearLoop: () => void;
-  onOpenInstruments: () => void;
-  onOpenIngestion: () => void;
+  onOpenInstruments?: () => void;
+  onOpenIngestion?: () => void;
   isRecording?: boolean;
   recordingTime?: number;
   onToggleRecord?: () => void;
@@ -46,6 +48,8 @@ interface PracticeBarProps {
   isMetronomeActive?: boolean;
   performanceScore?: PerformanceScore;
   onOpenVirtuosoSummary?: () => void;
+  isZenMode?: boolean;
+  onToggleZenMode?: () => void;
 }
 
 export const PracticeBar: React.FC<PracticeBarProps> = ({
@@ -69,8 +73,7 @@ export const PracticeBar: React.FC<PracticeBarProps> = ({
   onSetLoopA,
   onSetLoopB,
   onClearLoop,
-  onOpenInstruments: _onOpenInstruments,
-  onOpenIngestion: _onOpenIngestion,
+  onOpenInstruments,
   isRecording = false,
   recordingTime = 0,
   onToggleRecord,
@@ -78,8 +81,42 @@ export const PracticeBar: React.FC<PracticeBarProps> = ({
   isMetronomeActive = false,
   performanceScore,
   onOpenVirtuosoSummary,
+  isZenMode = false,
+  onToggleZenMode,
 }) => {
-  const [showTempoPopup, setShowTempoPopup] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
+  const [userInteractedRecently, setUserInteractedRecently] = useState(true);
+
+  // Auto-dim / Zen fade during uninterrupted playback
+  useEffect(() => {
+    if (!isPlaying) {
+      return;
+    }
+
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const resetInactivity = () => {
+      setUserInteractedRecently(true);
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        setUserInteractedRecently(false);
+      }, 3000);
+    };
+
+    const timerInit = setTimeout(() => {
+      setUserInteractedRecently(false);
+    }, 3000);
+
+    const onUserActivity = () => resetInactivity();
+    window.addEventListener('pointerdown', onUserActivity);
+    window.addEventListener('pointermove', onUserActivity);
+
+    return () => {
+      if (timer) clearTimeout(timer);
+      clearTimeout(timerInit);
+      window.removeEventListener('pointerdown', onUserActivity);
+      window.removeEventListener('pointermove', onUserActivity);
+    };
+  }, [isPlaying]);
 
   const formatTime = (secs: number) => {
     const m = Math.floor(secs / 60);
@@ -89,329 +126,342 @@ export const PracticeBar: React.FC<PracticeBarProps> = ({
 
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
 
+  // Cycle hand: both -> left -> right -> both
+  const cycleHand = () => {
+    triggerHaptic('light');
+    if (activeHand === 'both') onChangeHand('left');
+    else if (activeHand === 'left') onChangeHand('right');
+    else onChangeHand('both');
+  };
+
+  // Cycle tempo: 1.0x -> 1.25x -> 0.5x -> 0.75x -> 1.0x
+  const cycleTempo = () => {
+    triggerHaptic('light');
+    const speeds = [0.5, 0.75, 1.0, 1.25];
+    const currentIndex = speeds.indexOf(tempo);
+    const nextSpeed = speeds[(currentIndex + 1) % speeds.length] || 1.0;
+    onTempoChange(nextSpeed);
+  };
+
+  // Handle loop point cycle
+  const handleLoopCycle = () => {
+    triggerHaptic('light');
+    if (loopA === null) {
+      onSetLoopA();
+    } else if (loopB === null) {
+      onSetLoopB();
+    } else {
+      onClearLoop();
+    }
+  };
+
+  const isDimmed = (isZenMode || (!userInteractedRecently && isPlaying)) && !isHovered;
+
   return (
-    <div className="relative w-full max-w-5xl mx-auto px-4 pb-4 z-30 select-none">
-      <LiquidGlassCard className="p-3.5 md:p-4 backdrop-blur-2xl">
-        {/* Top Scrubber & A-B Loop Bar */}
-        <div className="relative w-full mb-3">
-          {/* Progress Timeline Track */}
+    <div
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      className={`fixed bottom-2 left-1/2 -translate-x-1/2 z-40 w-[96%] max-w-4xl transition-all duration-500 select-none ${
+        isDimmed ? 'opacity-25 hover:opacity-100 translate-y-1' : 'opacity-100 translate-y-0'
+      }`}
+      style={{
+        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+      }}
+    >
+      <div className="relative rounded-2xl bg-[#090b14]/85 backdrop-blur-3xl border border-white/15 shadow-[0_16px_40px_rgba(0,0,0,0.8),inset_0_1px_1px_rgba(255,255,255,0.4)] overflow-hidden">
+        {/* Continuous Integrated High-Precision Scrubber */}
+        <div
+          className="relative w-full h-2 bg-white/10 cursor-pointer overflow-hidden group"
+          onClick={(e) => {
+            triggerHaptic('light');
+            const rect = e.currentTarget.getBoundingClientRect();
+            const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+            onSeek(ratio * duration);
+          }}
+        >
+          {/* Active Progress Line */}
           <div
-            className="relative w-full h-2.5 rounded-full bg-white/10 cursor-pointer overflow-hidden group"
-            onClick={(e) => {
-              const rect = e.currentTarget.getBoundingClientRect();
-              const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-              onSeek(ratio * duration);
-            }}
-          >
-            {/* Active Progress Fill */}
+            className="h-full bg-gradient-to-r from-purple-500 via-pink-500 to-amber-400 transition-[width] duration-75 ease-linear shadow-[0_0_10px_rgba(168,85,247,0.8)]"
+            style={{ width: `${progressPercent}%` }}
+          />
+
+          {/* A-B Loop Range Shading */}
+          {loopA !== null && loopB !== null && (
             <div
-              className="h-full bg-gradient-to-r from-purple-500 via-purple-400 to-amber-400 transition-[width] duration-75 ease-linear"
-              style={{ width: `${progressPercent}%` }}
+              className="absolute top-0 bottom-0 bg-amber-400/35 border-x-2 border-amber-300 pointer-events-none"
+              style={{
+                left: `${(loopA / duration) * 100}%`,
+                width: `${((loopB - loopA) / duration) * 100}%`,
+              }}
             />
-
-            {/* A-B Loop Range Highlight */}
-            {loopA !== null && loopB !== null && (
-              <div
-                className="absolute top-0 bottom-0 bg-amber-400/35 border-x-2 border-amber-300 pointer-events-none"
-                style={{
-                  left: `${(loopA / duration) * 100}%`,
-                  width: `${((loopB - loopA) / duration) * 100}%`,
-                }}
-              />
-            )}
-          </div>
-
-          {/* Time Display, Scoring HUD & Loop Indicators */}
-          <div className="flex items-center justify-between mt-1.5 text-[11px] font-mono text-zinc-400">
-            <span>{formatTime(currentTime)}</span>
-
-            <div className="flex items-center gap-2">
-              {loopA !== null && (
-                <span className="px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 text-[10px]">
-                  Loop A: {formatTime(loopA)}
-                </span>
-              )}
-              {loopB !== null && (
-                <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px]">
-                  Loop B: {formatTime(loopB)}
-                </span>
-              )}
-
-              {/* Live Scoring HUD */}
-              {performanceScore && (performanceScore.totalNotes > 0 || performanceScore.score > 0 || duration > 0) && (
-                <button
-                  onClick={onOpenVirtuosoSummary}
-                  title="View Virtuoso Performance Summary"
-                  className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] border transition-all ${
-                    performanceScore.multiplier >= 8
-                      ? 'bg-gradient-to-r from-purple-600/30 via-pink-600/30 to-amber-500/30 border-pink-400 text-white shadow-[0_0_18px_rgba(236,72,153,0.7),0_0_30px_rgba(168,85,247,0.5)] animate-pulse'
-                      : performanceScore.multiplier >= 4
-                      ? 'bg-amber-500/20 border-amber-400/60 text-amber-200 shadow-[0_0_12px_rgba(245,158,11,0.5)] animate-pulse'
-                      : performanceScore.streak >= 10
-                      ? 'bg-purple-600/25 border-purple-400/50 text-purple-200'
-                      : 'bg-white/5 border-white/10 text-zinc-300 hover:text-white'
-                  }`}
-                >
-                  {performanceScore.multiplier >= 8 ? (
-                    <Sparkles className="w-3 h-3 text-pink-300 animate-spin" />
-                  ) : (
-                    <Zap className={`w-3 h-3 ${performanceScore.multiplier >= 4 ? 'text-amber-400' : 'text-purple-400'}`} />
-                  )}
-                  <span className="font-bold">{performanceScore.streak}x</span>
-                  {performanceScore.multiplier >= 8 ? (
-                    <span className="px-1.5 py-0.2 rounded text-[8px] font-black bg-gradient-to-r from-pink-500 via-purple-500 to-amber-400 text-white shadow-[0_0_10px_#ec4899]">
-                      8X COSMIC
-                    </span>
-                  ) : performanceScore.multiplier > 1 ? (
-                    <span className="px-1 rounded text-[8px] font-extrabold bg-amber-400 text-black">
-                      {performanceScore.multiplier}X
-                    </span>
-                  ) : null}
-                  <span className="text-zinc-500">|</span>
-                  <span className="font-bold text-amber-300">{performanceScore.score.toLocaleString()}</span>
-                  <span className="text-zinc-500">|</span>
-                  <span className="text-emerald-400 font-bold">{performanceScore.accuracy}%</span>
-                  <Trophy className="w-2.5 h-2.5 text-amber-400" />
-                </button>
-              )}
-            </div>
-
-            <span>{formatTime(duration)}</span>
-          </div>
+          )}
         </div>
 
-        {/* Main Controls Grid */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          {/* Left Section: Hand Separation Toggles */}
-          <div className="flex items-center gap-1.5 p-1 rounded-full bg-white/5 border border-white/10">
+        {/* Minimal Control Pill Bar */}
+        <div className="px-3.5 py-1.5 flex items-center justify-between gap-2 text-xs">
+          {/* Left Group: Restart, Rewind, Time, Hand, Wait-for-Me */}
+          <div className="flex items-center gap-1.5">
             <button
-              onClick={() => onChangeHand('both')}
-              className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
-                activeHand === 'both'
-                  ? 'bg-white/20 text-white shadow-sm border border-white/30'
-                  : 'text-zinc-400 hover:text-white'
-              }`}
+              onClick={() => {
+                triggerHaptic('light');
+                onRestart();
+              }}
+              title="Restart"
+              className="p-1.5 rounded-full text-zinc-400 hover:text-white hover:bg-white/10 transition-colors"
             >
-              Both Hands
+              <RotateCcw className="w-3.5 h-3.5" />
             </button>
             <button
-              onClick={() => onChangeHand('left')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
+              onClick={() => {
+                triggerHaptic('light');
+                onSeek(Math.max(0, currentTime - 5));
+              }}
+              title="Rewind 5s"
+              className="p-1.5 rounded-full text-zinc-400 hover:text-white hover:bg-white/10 transition-colors"
+            >
+              <Rewind className="w-3.5 h-3.5" />
+            </button>
+
+            {/* Time Indicator */}
+            <div className="font-mono text-[11px] text-zinc-400 font-semibold px-1">
+              <span className="text-white">{formatTime(currentTime)}</span>
+              <span className="text-zinc-600 mx-1">/</span>
+              <span>{formatTime(duration)}</span>
+            </div>
+
+            {/* Hand Separation Cycle Pill */}
+            <button
+              onClick={cycleHand}
+              title={`Hand: ${activeHand.toUpperCase()} (Tap to switch)`}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border transition-all ${
                 activeHand === 'left'
-                  ? 'lh-badge'
-                  : 'text-purple-400 hover:text-purple-200'
+                  ? 'bg-purple-600/30 border-purple-400 text-purple-200 shadow-[0_0_12px_rgba(168,85,247,0.4)]'
+                  : activeHand === 'right'
+                  ? 'bg-amber-500/30 border-amber-400 text-amber-200 shadow-[0_0_12px_rgba(245,158,11,0.4)]'
+                  : 'bg-white/5 border-white/10 text-zinc-300 hover:text-white'
               }`}
             >
-              <span className="w-2 h-2 rounded-full bg-purple-500" />
-              Left (Violet)
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${
+                  activeHand === 'left'
+                    ? 'bg-purple-400'
+                    : activeHand === 'right'
+                    ? 'bg-amber-400'
+                    : 'bg-white'
+                }`}
+              />
+              <span className="capitalize">{activeHand}</span>
             </button>
+
+            {/* Wait-for-Me Toggle */}
             <button
-              onClick={() => onChangeHand('right')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
-                activeHand === 'right'
-                  ? 'rh-badge'
-                  : 'text-amber-400 hover:text-amber-200'
+              onClick={() => {
+                triggerHaptic('light');
+                onToggleWaitForMe();
+              }}
+              title="Wait-for-Me Practice Mode"
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold border transition-all ${
+                waitForMe
+                  ? 'bg-purple-600/30 border-purple-400 text-purple-200 shadow-[0_0_12px_rgba(168,85,247,0.4)] animate-pulse'
+                  : 'bg-white/5 border-white/10 text-zinc-400 hover:text-white'
               }`}
             >
-              <span className="w-2 h-2 rounded-full bg-amber-500" />
-              Right (Amber)
+              <Sparkles className="w-3 h-3 text-purple-400" />
+              <span className="hidden sm:inline">Wait-for-Me</span>
             </button>
           </div>
 
-          {/* Center Section: Primary Transport */}
-          <div className="flex items-center gap-2">
+          {/* Center Group: Tactile Play / Pause Gem Button */}
+          <div className="flex items-center gap-1.5">
             <button
-              onClick={onRestart}
-              title="Restart from beginning"
-              className="p-2 rounded-full text-zinc-400 hover:text-white hover:bg-white/10 transition-colors"
-            >
-              <RotateCcw className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => onSeek(Math.max(0, currentTime - 5))}
-              title="Rewind 5s"
-              className="p-2 rounded-full text-zinc-400 hover:text-white hover:bg-white/10 transition-colors"
-            >
-              <Rewind className="w-4 h-4" />
-            </button>
-
-            {/* Play / Pause Primary Button */}
-            <LiquidGlassButton
-              onClick={onTogglePlay}
-              className="w-12 h-12 !p-0 rounded-full bg-white text-black hover:bg-white/90 shadow-[0_0_20px_rgba(255,255,255,0.4)] active:scale-95"
+              onClick={() => {
+                triggerHaptic('medium');
+                onTogglePlay();
+              }}
+              className="relative w-10 h-10 rounded-full flex items-center justify-center bg-white text-black hover:bg-zinc-200 active:scale-95 transition-all shadow-[0_0_18px_rgba(255,255,255,0.4),inset_0_1px_2px_rgba(255,255,255,0.9)] cursor-pointer"
             >
               {isPlaying ? (
-                <Pause className="w-5 h-5 fill-current text-black" />
+                <Pause className="w-4 h-4 fill-current text-black" />
               ) : (
-                <Play className="w-5 h-5 fill-current text-black ml-0.5" />
+                <Play className="w-4 h-4 fill-current text-black ml-0.5" />
               )}
-            </LiquidGlassButton>
+            </button>
 
             <button
-              onClick={() => onSeek(Math.min(duration, currentTime + 5))}
+              onClick={() => {
+                triggerHaptic('light');
+                onSeek(Math.min(duration, currentTime + 5));
+              }}
               title="Forward 5s"
-              className="p-2 rounded-full text-zinc-400 hover:text-white hover:bg-white/10 transition-colors"
+              className="p-1.5 rounded-full text-zinc-400 hover:text-white hover:bg-white/10 transition-colors"
             >
-              <FastForward className="w-4 h-4" />
+              <FastForward className="w-3.5 h-3.5" />
             </button>
           </div>
 
-          {/* Right Section: Practice Mode Modifiers */}
-          <div className="flex items-center gap-2">
-            {/* Wait-for-Me Mode Toggle */}
+          {/* Right Group: Tempo, Loop, Record, Mic, Score, Studio, Zen */}
+          <div className="flex items-center gap-1.5">
+            {/* Speed Pill */}
             <button
-              onClick={onToggleWaitForMe}
-              title="Wait-for-Me mode pauses until you play correct notes"
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
-                waitForMe
-                  ? 'bg-purple-600/30 text-purple-200 border-purple-400/60 shadow-[0_0_12px_rgba(168,85,247,0.4)] animate-pulse'
-                  : 'bg-white/5 text-zinc-400 border-white/10 hover:text-zinc-200'
-              }`}
+              onClick={cycleTempo}
+              title={`Playback Tempo: ${tempo}x (tap to cycle)`}
+              className="px-2 py-1 rounded-full bg-white/5 border border-white/10 text-[10px] font-mono font-bold text-zinc-300 hover:text-white hover:bg-white/10 transition-all"
             >
-              <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-              <span>Wait-for-Me</span>
+              {tempo}x
             </button>
 
-            {/* Tempo Modifier Button */}
-            <div className="relative">
-              <button
-                onClick={() => setShowTempoPopup(!showTempoPopup)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white/5 border border-white/10 text-zinc-300 hover:bg-white/10 transition-all"
-              >
-                <Clock className="w-3.5 h-3.5 text-zinc-400" />
-                <span>{tempo}x</span>
-              </button>
+            {/* A-B Loop Pill */}
+            <button
+              onClick={handleLoopCycle}
+              title={
+                loopA !== null && loopB !== null
+                  ? `Loop Active (${formatTime(loopA)} - ${formatTime(loopB)}). Tap to clear.`
+                  : loopA !== null
+                  ? `Loop Point A set at ${formatTime(loopA)}. Tap to set B.`
+                  : 'Tap to set Loop Point A'
+              }
+              className={`flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-mono font-bold border transition-all ${
+                loopA !== null && loopB !== null
+                  ? 'bg-amber-500/25 border-amber-400 text-amber-200'
+                  : loopA !== null
+                  ? 'bg-purple-600/25 border-purple-400 text-purple-200'
+                  : 'bg-white/5 border-white/10 text-zinc-400 hover:text-white'
+              }`}
+            >
+              <Repeat className="w-2.5 h-2.5" />
+              <span>
+                {loopA !== null && loopB !== null
+                  ? `${formatTime(loopA)}-${formatTime(loopB)}`
+                  : loopA !== null
+                  ? 'A...'
+                  : 'Loop'}
+              </span>
+            </button>
 
-              {/* Tempo Slider Popover */}
-              {showTempoPopup && (
-                <div className="absolute bottom-full mb-3 right-0 p-3 rounded-2xl bg-[#0e101a] border border-white/15 shadow-2xl backdrop-blur-xl w-48 z-50">
-                  <div className="flex justify-between items-center text-xs text-zinc-300 font-semibold mb-2">
-                    <span>Speed / Tempo</span>
-                    <span className="text-amber-400 font-mono">{tempo.toFixed(2)}x</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="0.25"
-                    max="1.5"
-                    step="0.05"
-                    value={tempo}
-                    onChange={(e) => onTempoChange(parseFloat(e.target.value))}
-                    className="w-full glass-slider cursor-pointer"
-                  />
-                  <div className="flex justify-between gap-1 mt-2 text-[10px] text-zinc-400">
-                    {[0.5, 0.75, 1.0, 1.25].map((t) => (
-                      <button
-                        key={t}
-                        onClick={() => onTempoChange(t)}
-                        className={`px-1.5 py-0.5 rounded ${
-                          tempo === t ? 'bg-amber-400 text-black font-bold' : 'bg-white/5 hover:bg-white/10'
-                        }`}
-                      >
-                        {t}x
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* A-B Loop Controls */}
-            <div className="flex items-center gap-1 p-0.5 rounded-full bg-white/5 border border-white/10 text-xs">
-              <button
-                onClick={onSetLoopA}
-                className={`px-2 py-1 rounded-full text-[11px] font-bold ${
-                  loopA !== null ? 'bg-purple-600 text-white' : 'text-zinc-400 hover:text-white'
-                }`}
-                title="Set Loop Point A"
-              >
-                [A
-              </button>
-              <button
-                onClick={onSetLoopB}
-                className={`px-2 py-1 rounded-full text-[11px] font-bold ${
-                  loopB !== null ? 'bg-amber-500 text-black' : 'text-zinc-400 hover:text-white'
-                }`}
-                title="Set Loop Point B"
-              >
-                B]
-              </button>
-              {(loopA !== null || loopB !== null) && (
-                <button
-                  onClick={onClearLoop}
-                  className="px-2 py-1 rounded-full text-[10px] text-zinc-500 hover:text-red-400"
-                  title="Clear Loop"
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-
-            {/* Metronome & Pitch Studio Toggle */}
-            {onOpenMetronomeStudio && (
-              <button
-                onClick={onOpenMetronomeStudio}
-                title="Metronome & Concert Pitch Studio"
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
-                  isMetronomeActive
-                    ? 'bg-purple-600/30 text-purple-200 border-purple-400/80 shadow-[0_0_12px_rgba(168,85,247,0.5)] animate-pulse'
-                    : 'bg-white/5 border-white/10 text-zinc-300 hover:text-white hover:bg-white/10'
-                }`}
-              >
-                <Radio className={`w-3.5 h-3.5 ${isMetronomeActive ? 'text-purple-300 animate-spin' : 'text-purple-400'}`} />
-                <span className="hidden sm:inline">Metronome</span>
-              </button>
-            )}
-
-            {/* Live Performance Recording Button */}
+            {/* Recording Button */}
             {onToggleRecord && (
               <button
-                onClick={onToggleRecord}
-                title={isRecording ? 'Stop Recording' : 'Record User Performance'}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
+                onClick={() => {
+                  triggerHaptic('medium');
+                  onToggleRecord();
+                }}
+                title={isRecording ? 'Stop Recording' : 'Record Performance'}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold border transition-all ${
                   isRecording
-                    ? 'bg-rose-500/25 text-rose-200 border-rose-400/80 shadow-[0_0_16px_rgba(244,63,94,0.5)] animate-pulse'
-                    : 'bg-white/5 text-zinc-400 border-white/10 hover:text-white hover:bg-white/10'
+                    ? 'bg-rose-500/25 border-rose-400 text-rose-200 shadow-[0_0_14px_rgba(244,63,94,0.5)] animate-pulse'
+                    : 'bg-white/5 border-white/10 text-zinc-400 hover:text-white hover:bg-white/10'
                 }`}
               >
                 <span
-                  className={`w-2 h-2 rounded-full ${
-                    isRecording ? 'bg-rose-400 shadow-[0_0_8px_#f43f5e] animate-ping' : 'bg-rose-500'
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    isRecording ? 'bg-rose-400 shadow-[0_0_6px_#f43f5e] animate-ping' : 'bg-rose-500'
                   }`}
                 />
-                <span>{isRecording ? `REC ${formatTime(recordingTime)}` : 'Record'}</span>
+                <span>{isRecording ? `REC ${formatTime(recordingTime)}` : 'REC'}</span>
               </button>
             )}
 
-            {/* Mic Listening Toggle */}
+            {/* Acoustic Microphone Pitch Listener */}
             <button
-              onClick={onToggleMic}
-              title="Listen to real acoustic piano via microphone"
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
+              onClick={() => {
+                triggerHaptic('light');
+                onToggleMic();
+              }}
+              title="Acoustic Piano Microphone Listener"
+              className={`p-1.5 rounded-full border transition-all ${
                 isMicActive
-                  ? 'bg-red-500/25 text-red-300 border-red-500/60 shadow-[0_0_12px_rgba(239,68,68,0.4)]'
-                  : 'bg-white/5 text-zinc-400 border-white/10 hover:text-zinc-200'
+                  ? 'bg-red-500/25 border-red-500/60 text-red-300 shadow-[0_0_12px_rgba(239,68,68,0.4)]'
+                  : 'bg-white/5 border-white/10 text-zinc-400 hover:text-white'
               }`}
             >
               {isMicActive ? (
-                <>
+                <div className="relative">
                   <Mic className="w-3.5 h-3.5 text-red-400 animate-pulse" />
-                  <span>Mic On</span>
-                  {/* Real-time VU level bar */}
                   <span
-                    className="w-1.5 h-3 rounded-full bg-red-400 transition-all"
-                    style={{ transform: `scaleY(${Math.max(0.3, micLevel)})` }}
+                    className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full bg-red-400 transition-all"
+                    style={{ transform: `scale(${Math.max(0.5, micLevel * 2)})` }}
                   />
-                </>
+                </div>
               ) : (
-                <>
-                  <MicOff className="w-3.5 h-3.5 text-zinc-500" />
-                  <span>Mic Off</span>
-                </>
+                <MicOff className="w-3.5 h-3.5" />
               )}
             </button>
+
+            {/* Studio FX Drawer Opener */}
+            {onOpenInstruments && (
+              <button
+                onClick={() => {
+                  triggerHaptic('light');
+                  onOpenInstruments();
+                }}
+                title="Open Studio & Acoustics FX Engine"
+                className="p-1.5 rounded-full bg-white/5 border border-white/10 text-zinc-300 hover:text-white hover:bg-white/10 transition-all"
+              >
+                <Sliders className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            {/* Metronome Studio Button */}
+            {onOpenMetronomeStudio && (
+              <button
+                onClick={() => {
+                  triggerHaptic('light');
+                  onOpenMetronomeStudio();
+                }}
+                title="Open Concert Pitch & Metronome Studio"
+                className={`p-1.5 rounded-full border transition-all ${
+                  isMetronomeActive
+                    ? 'bg-purple-600/30 border-purple-400 text-purple-200 shadow-[0_0_8px_rgba(168,85,247,0.4)]'
+                    : 'bg-white/5 border-white/10 text-zinc-400 hover:text-white'
+                }`}
+              >
+                <Radio className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            {/* Live Performance Scoring Badge */}
+            {performanceScore && (performanceScore.totalNotes > 0 || performanceScore.score > 0) && (
+              <button
+                onClick={() => {
+                  triggerHaptic('light');
+                  onOpenVirtuosoSummary?.();
+                }}
+                title="View Virtuoso Score Summary"
+                className={`hidden md:flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono border transition-all ${
+                  performanceScore.multiplier >= 8
+                    ? 'bg-pink-500/20 border-pink-400 text-pink-200 animate-pulse'
+                    : performanceScore.multiplier >= 4
+                    ? 'bg-amber-500/20 border-amber-400 text-amber-200'
+                    : 'bg-white/5 border-white/10 text-zinc-300'
+                }`}
+              >
+                <Zap className="w-2.5 h-2.5 text-amber-400" />
+                <span>{performanceScore.streak}x</span>
+                <span className="text-zinc-600">|</span>
+                <span className="font-bold text-amber-300">{performanceScore.score}</span>
+              </button>
+            )}
+
+            {/* Zen Mode Toggle */}
+            {onToggleZenMode && (
+              <button
+                onClick={() => {
+                  triggerHaptic('light');
+                  onToggleZenMode();
+                }}
+                title={isZenMode ? 'Exit Zen Mode' : 'Enter 100% Immersive Zen Mode'}
+                className={`p-1.5 rounded-full border transition-all ${
+                  isZenMode
+                    ? 'bg-purple-600/30 border-purple-400 text-purple-200'
+                    : 'bg-white/5 border-white/10 text-zinc-400 hover:text-white'
+                }`}
+              >
+                {isZenMode ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+              </button>
+            )}
           </div>
         </div>
-      </LiquidGlassCard>
+      </div>
     </div>
   );
 };

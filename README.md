@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Version: 1.3.0](https://img.shields.io/badge/Release-v1.3.0-blue.svg?style=for-the-badge)
+![Version: 2.0.0](https://img.shields.io/badge/Release-v2.0.0-blue.svg?style=for-the-badge)
 ![Android](https://img.shields.io/badge/Android_APK-3DDC84?style=for-the-badge&logo=android&logoColor=white)
 ![License: MIT](https://img.shields.io/badge/License-MIT-purple.svg?style=for-the-badge)
 ![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)

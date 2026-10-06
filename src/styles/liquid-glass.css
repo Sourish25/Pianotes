@@ -285,3 +285,60 @@ input[type="range"].glass-slider::-webkit-slider-thumb:hover {
 input[type="range"].glass-slider::-webkit-slider-thumb:active {
   transform: scale(0.95);
 }
+
+/* ==========================================================================
+   Apple Dynamic Glass Island & Floating Dock System (v2.0.0 Production)
+   ========================================================================== */
+
+.dynamic-island {
+  position: relative;
+  background: rgba(10, 12, 20, 0.78);
+  backdrop-filter: blur(32px) saturate(240%) brightness(1.1);
+  -webkit-backdrop-filter: blur(32px) saturate(240%) brightness(1.1);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 9999px;
+  box-shadow: 
+    0 16px 36px -8px rgba(0, 0, 0, 0.75),
+    0 4px 12px rgba(0, 0, 0, 0.4),
+    inset 0 1px 1.5px 0 rgba(255, 255, 255, 0.5),
+    inset 0 -1px 2px 0 rgba(0, 0, 0, 0.5);
+  transition: all 0.4s var(--spring-easing);
+  will-change: transform, opacity;
+}
+
+.dynamic-island:hover {
+  background: rgba(14, 16, 26, 0.88);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+/* Zen Mode Auto-Dimming */
+.zen-dimmed {
+  opacity: 0.18 !important;
+  transform: translateY(-4px) scale(0.98);
+  pointer-events: auto;
+  transition: opacity 0.5s ease-out, transform 0.5s ease-out;
+}
+
+.zen-dimmed:hover,
+.zen-dimmed:active {
+  opacity: 1 !important;
+  transform: translateY(0) scale(1);
+}
+
+/* Android Landscape Safe Area Padding Helpers */
+.safe-left {
+  padding-left: max(12px, env(safe-area-inset-left, 12px));
+}
+
+.safe-right {
+  padding-right: max(12px, env(safe-area-inset-right, 12px));
+}
+
+.safe-top {
+  padding-top: max(8px, env(safe-area-inset-top, 8px));
+}
+
+.safe-bottom {
+  padding-bottom: max(8px, env(safe-area-inset-bottom, 8px));
+}
+

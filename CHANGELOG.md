@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.0.0] - 2026-10-07
+
+### 🚀 Production Redesign & UI Debloating (Android-First)
+- **Complete UI Transformation & Debloating**:
+  - Replaced multiple cluttered floating bars and disjointed modals with a unified, content-first Apple Liquid Glass **Studio Sheet** (`StudioDrawer.tsx`).
+  - Seamless tabbed interface grouping **Instruments (9 engines)**, **Studio DSP FX Rack (Reverb, Chorus, Delay, Drive)**, and **Metronome & Micro-Tuning Studio**.
+  - Cleaned up obsolete standalone components (`InstrumentSelector.tsx` and `MetronomeStudio.tsx`).
+- **Immersive Zen Mode & Smart Chrome Auto-Fade**:
+  - Added dedicated **Zen Mode** (`Maximize2` / `Minimize2` toggle in header and practice bar).
+  - During playback, non-essential interface chrome smoothly fades into the background (`opacity-0 pointer-events-none -translate-y-full`), dedicating 100% full-screen visual real estate to the 3D waterfall and 2D playable piano.
+  - Interactive touches or pointer movements gently wake the chrome with zero jerkiness.
+- **Android Native Haptics & Performance Polish**:
+  - Integrated Capacitor native haptic feedback (`triggerHaptic`) providing tactile physical tick response on button taps and key strikes.
+  - Locked widescreen landscape framing (`sensorLandscape`) with edge-to-edge safe area glass padding (`viewport-fit=cover`).
+  - Recompiled production Android APK binaries (`Pianotes-release.apk` 3.42MB and `Pianotes-debug.apk` 4.42MB).
+
+---
+
 ## [1.3.0] - 2026-10-07
 
 ### Added & Improved
