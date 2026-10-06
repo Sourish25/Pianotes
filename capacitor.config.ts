@@ -1,5 +1,9 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
+/**
+ * Pianotes Capacitor Configuration
+ * Configured for Android 1:1 Apple Liquid Glass 3D Piano & Waterfall Synthesizer
+ */
 const config: CapacitorConfig = {
   appId: 'com.pianotes.app',
   appName: 'Pianotes',
@@ -12,6 +16,18 @@ const config: CapacitorConfig = {
     allowMixedContent: false,
     captureInput: true,
     webContentsDebuggingEnabled: false
+  },
+  plugins: {
+    SystemBars: {
+      insetsHandling: 'css',
+      initialViewportFitValueHint: 'cover'
+    }
+  },
+  cordova: {
+    preferences: {
+      Orientation: 'sensorLandscape',
+      HardwareAcceleration: 'true'
+    }
   }
 };
 

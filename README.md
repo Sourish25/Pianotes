@@ -205,7 +205,7 @@ npm run lint
 
 ## 📱 Android APK & Native Mobile Build
 
-Pianotes runs natively on Android via **Capacitor 8**, featuring hardware-accelerated 60 FPS WebGL rendering, native microphone pitch capture (`RECORD_AUDIO`), and low-latency USB/Bluetooth MIDI keyboard support (`android.software.midi`).
+Pianotes runs natively on Android via **Capacitor 8**, featuring hardware-accelerated 60 FPS WebGL rendering, native sensor-landscape orientation framing, edge-to-edge Apple Liquid Glass styling, native microphone pitch capture (`RECORD_AUDIO`), and low-latency USB/Bluetooth MIDI keyboard support (`android.software.midi`).
 
 ### Download Pre-built APKs
 You can download the latest installable APKs directly from the [GitHub Releases](https://github.com/Sourish25/Pianotes/releases):

@@ -1,0 +1,10 @@
+# Set default behaviour to automatically normalize line endings
+* text=auto
+
+# Enforce LF on gradlew and shell scripts to prevent Linux build failures
+android/gradlew text eol=lf
+*.sh text eol=lf
+
+# Batch scripts need CRLF on Windows
+*.bat text eol=crlf
+*.cmd text eol=crlf
