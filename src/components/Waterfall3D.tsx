@@ -69,6 +69,10 @@ interface PooledFloorRipple {
   initialZ: number;
 }
 
+// Pre-allocated static Color instances for zero GC churn in render loop
+const COLOR_LEFT_EMBER = new THREE.Color(0xd8b4fe);
+const COLOR_RIGHT_EMBER = new THREE.Color(0xfef08a);
+
 export const Waterfall3D: React.FC<Waterfall3DProps> = ({
   notes,
   currentTime,
@@ -632,6 +636,7 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
       keyMeshesRef.current.set(midi, keyMesh);
       keyBaseYRef.current.set(midi, yOffset);
     }
+    const keyMeshesList = Array.from(keyMeshesRef.current.values());
 
     // Pre-Allocated Particle Pool (Zero GC Churn)
     const MAX_PARTICLES = 900;
@@ -667,6 +672,7 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
     scene.add(particlePoints);
     particlePointsRef.current = particlePoints;
 
+    let particlePoolIndex = 0;
     const spawnParticle = (
       x: number,
       y: number,
@@ -678,8 +684,10 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
       maxLife: number
     ) => {
       const pool = particlePoolRef.current;
-      for (let i = 0; i < pool.length; i++) {
-        const p = pool[i];
+      const poolLen = pool.length;
+      for (let i = 0; i < poolLen; i++) {
+        const idx = (particlePoolIndex + i) % poolLen;
+        const p = pool[idx];
         if (!p.active) {
           p.active = true;
           p.position.set(x, y, z);
@@ -687,6 +695,7 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
           p.color.copy(color);
           p.life = 0;
           p.maxLife = maxLife;
+          particlePoolIndex = (idx + 1) % poolLen;
           return;
         }
       }
@@ -805,8 +814,7 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
       mouseNDC.set(ndcX, ndcY);
       raycaster.setFromCamera(mouseNDC, cameraRef.current);
 
-      const keyMeshes = Array.from(keyMeshesRef.current.values());
-      const hits = raycaster.intersectObjects(keyMeshes, false);
+      const hits = raycaster.intersectObjects(keyMeshesList, false);
       if (hits.length > 0) {
         const hit = hits[0];
         const pitch = hit.object.userData.pitch as number;
@@ -837,6 +845,33 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
         const isLeft = keyHit.pitch < 60;
         spawnShockwave(posX, isLeft);
         spawnFloorRipple(posX, isLeft);
+
+        // Tactile strike particles and rising embers
+        const sparkColor = isLeft ? COLOR_LEFT_EMBER : COLOR_RIGHT_EMBER;
+        for (let i = 0; i < 4; i++) {
+          spawnParticle(
+            posX + (Math.random() - 0.5) * 0.4,
+            0.6,
+            STRIKE_Z + (Math.random() - 0.5) * 0.3,
+            (Math.random() - 0.5) * 5.0,
+            Math.random() * 6.0 + 2.5,
+            (Math.random() - 0.5) * 5.0,
+            sparkColor,
+            0.45 + Math.random() * 0.3
+          );
+        }
+        if (keyHit.velocity >= 0.70) {
+          spawnParticle(
+            posX,
+            0.75,
+            STRIKE_Z + 0.1,
+            (Math.random() - 0.5) * 2.0,
+            Math.random() * 5.0 + 3.0,
+            Math.random() * 2.0 - 1.0,
+            sparkColor,
+            0.42 + Math.random() * 0.25
+          );
+        }
         return; // Intercept event: do NOT start camera orbit drag!
       }
 
@@ -866,6 +901,20 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
             const isLeft = keyHit.pitch < 60;
             spawnShockwave(posX, isLeft);
             spawnFloorRipple(posX, isLeft);
+
+            const sparkColor = isLeft ? COLOR_LEFT_EMBER : COLOR_RIGHT_EMBER;
+            for (let i = 0; i < 3; i++) {
+              spawnParticle(
+                posX + (Math.random() - 0.5) * 0.3,
+                0.6,
+                STRIKE_Z + (Math.random() - 0.5) * 0.2,
+                (Math.random() - 0.5) * 4.0,
+                Math.random() * 5.0 + 2.0,
+                (Math.random() - 0.5) * 4.0,
+                sparkColor,
+                0.40 + Math.random() * 0.2
+              );
+            }
           }
         } else {
           // Finger slid off keybed
@@ -970,12 +1019,18 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
     let animId: number;
     let lastChordUpdate = 0;
 
+    // Reusable buffers to guarantee zero GC heap churn in the 60/120fps render loop
+    const activeStrikingPitches: number[] = [];
+    const activePitchHands = new Map<number, 'left' | 'right'>();
+    const activeDepressions: { pitch: number; depth: number }[] = [];
+
     const animate = (timestamp: number) => {
       animId = requestAnimationFrame(animate);
 
       const curTime = currentTimeRef.current;
-      const activeStrikingPitches: number[] = [];
-      const activePitchHands = new Map<number, 'left' | 'right'>();
+      activeStrikingPitches.length = 0;
+      activePitchHands.clear();
+      activeDepressions.length = 0;
 
       // Update Falling Luminous Crystal Notes with Velocity-Sensitive Bloom
       const notesToRender = filteredNotesRef.current;
@@ -1043,7 +1098,13 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
           if (capMesh) {
             capMesh.position.set(0, 0.02, noteLength / 2 - 0.15);
             const cMat = capMesh.material as THREE.MeshBasicMaterial;
-            cMat.opacity = Math.min(1.0, 0.88 + vel * 0.12);
+            // Hot radiant bloom on strike cap driven by strikeCapIntensity
+            cMat.opacity = Math.min(1.0, isStriking ? 1.0 : 0.80 + vel * 0.18);
+            if (isStriking) {
+              cMat.color.setRGB(1.0, 1.0, 1.0);
+            } else {
+              cMat.color.setRGB(0.92, 0.94, 1.0);
+            }
           }
 
           const posX = getNoteX(note.pitch);
@@ -1053,7 +1114,7 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
           // Glowing Trailing Edge Embers & Particle Wakes on Fast/Forte Falling Notes
           if (timeUntilStrike > 0 && shouldEmitTrailingEmbers(vel, Math.random())) {
             const trailingZ = posZ - noteLength / 2;
-            const emberColor = isLeftHand ? new THREE.Color(0xd8b4fe) : new THREE.Color(0xfef08a);
+            const emberColor = isLeftHand ? COLOR_LEFT_EMBER : COLOR_RIGHT_EMBER;
             spawnParticle(
               posX + (Math.random() - 0.5) * 0.35,
               0.45,
@@ -1073,7 +1134,7 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
 
             // Cosmic particle burst, rising embers & floor splash ripples
             if (Math.random() < 0.45) {
-              const sparkColor = isLeftHand ? new THREE.Color(0xd8b4fe) : new THREE.Color(0xfef08a);
+              const sparkColor = isLeftHand ? COLOR_LEFT_EMBER : COLOR_RIGHT_EMBER;
               spawnParticle(
                 posX + (Math.random() - 0.5) * 0.4,
                 0.6,
@@ -1143,8 +1204,6 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
       });
 
       // Update 3D Piano Key Depressions, Mechanical Fulcrum Tilting, and Audio-Reactive Underglow
-      const activeDepressions: { pitch: number; depth: number }[] = [];
-
       keyMeshesRef.current.forEach((keyMesh, midi) => {
         const isDepressed = activeStrikingPitches.includes(midi);
         const baseY = keyBaseYRef.current.get(midi) || 0;
@@ -1429,6 +1488,8 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
     const noteGroups = noteGroupsRef.current;
     const activePointers = active3DPointersRef.current;
     const octavePlaques = octavePlaquesRef.current;
+    const keyMeshes = keyMeshesRef.current;
+    const keyBaseY = keyBaseYRef.current;
     const domElement = renderer.domElement;
 
     return () => {
@@ -1492,6 +1553,48 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
       octavePlaques.clear();
       octavePlaqueGeo.dispose();
       plaqueTexturesToDispose.forEach((tex) => tex.dispose());
+
+      // Dispose all 88 Piano Key meshes, geometries, and materials
+      keyMeshes.forEach((mesh) => {
+        scene.remove(mesh);
+        mesh.geometry.dispose();
+        if (Array.isArray(mesh.material)) {
+          mesh.material.forEach((m) => m.dispose());
+        } else {
+          mesh.material.dispose();
+        }
+      });
+      keyMeshes.clear();
+      keyBaseY.clear();
+
+      // Dispose static scene geometries, textures, and materials to prevent WebGL GPU leaks
+      const staticDisposables: { dispose: () => void }[] = [
+        bedGeo, bedMat,
+        underglowGeo, underglowMat,
+        apertureGeo, apertureMat,
+        starGeo, starMat,
+        nebulaTex, nebulaGeo, nebulaMat,
+        laneGeo, laneMat,
+        strikeGeo, strikeMat,
+        glowGeo, glowMat,
+        feltGeo, feltMat,
+        fallboardGeo, fallboardMat,
+        crestGeo, crestMat,
+        cheekGeo, cheekMat,
+        brassGeo, brassMat,
+        frontRailGeo, frontRailMat,
+        frontBrassGeo, frontBrassMat,
+        particleGeo, particleMat,
+      ];
+      staticDisposables.forEach((item) => {
+        try {
+          item.dispose();
+        } catch {
+          // ignore
+        }
+      });
+
+      scene.clear();
 
       if (domElement && domElement.parentNode === container) {
         container.removeChild(domElement);

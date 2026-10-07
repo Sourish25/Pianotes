@@ -1567,6 +1567,45 @@ describe('Audio-Visual Bloom & 3D Visualizer Math (v2.6.0)', () => {
       expect(finished.opacity).toBe(0);
       expect(finished.zOffset).toBeCloseTo(-1.8, 2);
     });
+
+    it('safely handles NaN, negative, or invalid ripple parameters', () => {
+      const invalidLife = calculateRippleWave(NaN, 0.55, 3.6);
+      expect(invalidLife.radius).toBe(0.3);
+      expect(invalidLife.opacity).toBe(0.75);
+
+      const invalidMax = calculateRippleWave(0.2, 0, 3.6);
+      expect(invalidMax.radius).toBeGreaterThan(0.3);
+      expect(invalidMax.opacity).toBeGreaterThan(0);
+    });
+  });
+
+  describe('Robustness and Edge Cases for Audio-Visual Visualizer Math', () => {
+    it('safely handles zero-depth and NaN depression items in underglow calculation', () => {
+      const zeroDep = calculateKeybedUnderglow([{ pitch: 60, depth: 0 }]);
+      expect(zeroDep.activeCount).toBe(0);
+      expect(zeroDep.intensity).toBe(0);
+      expect(zeroDep.maxDepression).toBe(0);
+
+      const nanDep = calculateKeybedUnderglow([{ pitch: NaN, depth: NaN }]);
+      expect(nanDep.activeCount).toBe(0);
+      expect(nanDep.intensity).toBe(0);
+      expect(nanDep.maxDepression).toBe(0);
+    });
+
+    it('clamps negative randomSeed and handles NaN in trailing ember checks', () => {
+      expect(shouldEmitTrailingEmbers(0.85, -0.5)).toBe(true); // negative seed clamped to 0 < 0.22
+      expect(shouldEmitTrailingEmbers(0.85, NaN)).toBe(true); // NaN seed clamped to 0 < 0.22
+      expect(shouldEmitTrailingEmbers(NaN, 0.10)).toBe(true); // NaN velocity defaults to 0.75 >= 0.72
+    });
+
+    it('provides both divider-aligned posX and key-centered keyX in octave marker data', () => {
+      const c4 = getOctaveMarkerData(60);
+      expect(c4).not.toBeNull();
+      expect(c4?.keyX).toBeCloseTo(getNoteX(60), 2);
+      expect(c4?.posX).toBeCloseTo(getNoteX(60) - 0.31, 2);
+
+      expect(getOctaveMarkerData(NaN)).toBeNull();
+    });
   });
 });
 

@@ -28,13 +28,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Implemented expanding ripple splash distortion waves spreading backwards across the lacquered obsidian runway mirror floor upon key strikes.
   - Ripple waves expand outwards with ease-out dissipation (`radius: 0.3` to `3.6`) and progressive alpha fade, simulating liquid raindrops disturbing the reflective water surface.
 - **Low-Overhead Object Pools & Zero-Allocation Render Loop**:
-  - Replaced all ad-hoc heap allocations in the 60fps render loop with pre-allocated object pools:
-    - 900 pre-allocated particle instances (`particlePool`).
+  - Replaced all ad-hoc heap allocations in the 60/120fps render loop with pre-allocated object pools and persistent buffers:
+    - 900 pre-allocated particle instances (`particlePool`) with O(1) ring-buffer indexing.
     - 24 pre-allocated strike shockwave rings (`shockwavesPool`).
     - 24 pre-allocated floor splash ripple rings (`ripplesPool`).
-  - Completely eliminated GC pauses and micro-stutters, maintaining locked 60/120fps on Android mobile devices.
+    - Pre-cached key meshes array (`keyMeshesList`) eliminating array generation per pointer raycast event.
+    - Persistent frame buffers (`activeStrikingPitches`, `activePitchHands`, `activeDepressions`) and static `THREE.Color` singletons eliminating GC churn.
+    - Added tactile spark particle bursts and velocity-scaled rising embers to direct 3D piano touchscreen strikes and glissando.
+    - Added comprehensive WebGL GPU resource disposal on unmount across all 88 piano keys, static geometries, materials, and textures to prevent memory leaks on mobile devices.
 - **Quality Assurance**:
-  - Expanded unit test suite from 67 to 83 passing tests (`vitest`).
+  - Expanded unit test suite from 67 to 87 passing tests (`vitest`) covering edge cases, NaN sanitation, zero-depth depression handling, and key-centering coordinates.
   - 0 lint errors and 0 lint warnings (`oxlint`).
   - Built fresh native Android release & debug APKs (`Pianotes-release.apk` & `Pianotes-debug.apk`).
 
