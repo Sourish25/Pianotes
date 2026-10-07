@@ -5,6 +5,7 @@ import { pianoEngine } from '../audio/PianoEngine';
 import {
   evaluateStrikeTiming,
   getComboMultiplier,
+  calculateAccuracy,
   calculateStarRating,
   ScoreKeeper,
 } from '../utils/scoringSystem';
@@ -675,6 +676,86 @@ describe('Edge Cases & Boundary Safeguards (v1.3.0)', () => {
     const parsed = parseMidiFile(binary, 'Uint8 Test.mid');
     expect(parsed.notes.length).toBe(1);
     expect(parsed.notes[0].pitch).toBe(60);
+  });
+
+  it('correctly models multi-touch polyphony pointer map behavior without note stealing', () => {
+    // Model pointerMap behavior from PlayablePiano2D
+    const pointerMap = new Map<number, number>();
+    const activePitches = new Set<number>();
+
+    const startPointer = (pointerId: number, midi: number) => {
+      const prev = pointerMap.get(pointerId);
+      if (prev !== undefined && prev !== midi) {
+        const stillHeld = Array.from(pointerMap.entries()).some(
+          ([id, p]) => id !== pointerId && p === prev
+        );
+        if (!stillHeld) activePitches.delete(prev);
+      }
+      pointerMap.set(pointerId, midi);
+      activePitches.add(midi);
+    };
+
+    const endPointer = (pointerId: number) => {
+      const pitch = pointerMap.get(pointerId);
+      pointerMap.delete(pointerId);
+      if (pitch !== undefined) {
+        const stillHeld = Array.from(pointerMap.values()).includes(pitch);
+        if (!stillHeld) activePitches.delete(pitch);
+      }
+    };
+
+    // User plays C Major Triad (C4=60, E4=64, G4=67) with 3 fingers
+    startPointer(1, 60);
+    startPointer(2, 64);
+    startPointer(3, 67);
+
+    expect(activePitches.size).toBe(3);
+    expect(activePitches.has(60)).toBe(true);
+    expect(activePitches.has(64)).toBe(true);
+    expect(activePitches.has(67)).toBe(true);
+
+    // User lifts finger 2 (E4): C4 and G4 must remain held!
+    endPointer(2);
+    expect(activePitches.size).toBe(2);
+    expect(activePitches.has(60)).toBe(true);
+    expect(activePitches.has(64)).toBe(false);
+    expect(activePitches.has(67)).toBe(true);
+
+    // User lifts finger 1 (C4): G4 must still remain held!
+    endPointer(1);
+    expect(activePitches.size).toBe(1);
+    expect(activePitches.has(67)).toBe(true);
+
+    // Finally release finger 3 (G4)
+    endPointer(3);
+    expect(activePitches.size).toBe(0);
+  });
+
+  it('guarantees 0% accuracy and 0 stars on empty or 0-point performance score', () => {
+    const zeroScore = {
+      score: 0,
+      streak: 0,
+      maxStreak: 0,
+      multiplier: 1,
+      perfectCount: 0,
+      greatCount: 0,
+      earlyCount: 0,
+      lateCount: 0,
+      missCount: 0,
+      totalNotes: 50,
+      accuracy: 0,
+    };
+    expect(calculateAccuracy(zeroScore)).toBe(0);
+    expect(calculateStarRating(0).stars).toBe(0);
+    expect(calculateStarRating(0).rank).toBe('Novice');
+
+    // Only misses: score is 0, total > 0 -> must return 0% accuracy and 0 stars
+    const allMisses = {
+      ...zeroScore,
+      missCount: 5,
+    };
+    expect(calculateAccuracy(allMisses)).toBe(0);
+    expect(calculateStarRating(calculateAccuracy(allMisses)).stars).toBe(0);
   });
 });
 

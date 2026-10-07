@@ -143,7 +143,14 @@ export const PlayablePiano2D: React.FC<PlayablePiano2DProps> = ({
   // Per-finger pointer event handlers
   const handleKeyPointerDown = useCallback((e: React.PointerEvent, midi: number) => {
     e.preventDefault();
-    (e.target as HTMLElement)?.releasePointerCapture?.(e.pointerId);
+    try {
+      const el = e.currentTarget as HTMLElement;
+      if (el?.hasPointerCapture?.(e.pointerId)) {
+        el.releasePointerCapture(e.pointerId);
+      }
+    } catch {
+      // Ignore releasePointerCapture errors
+    }
 
     const prevPitch = pointerMapRef.current.get(e.pointerId);
     if (prevPitch !== undefined && prevPitch !== midi && prevPitch !== -1) {
@@ -185,6 +192,28 @@ export const PlayablePiano2D: React.FC<PlayablePiano2DProps> = ({
           }
         }
         handleNoteStart(midi);
+      }
+    }
+  }, [handleNoteStart, handleNoteEnd]);
+
+  // Touch & Pointer glissando tracker for smooth sliding across piano keys
+  const handleViewportPointerMove = useCallback((e: React.PointerEvent) => {
+    if (!pointerMapRef.current.has(e.pointerId)) return;
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const keyEl = el?.closest('[data-midi]');
+    const midiAttr = keyEl?.getAttribute('data-midi');
+    if (midiAttr) {
+      const targetMidi = parseInt(midiAttr, 10);
+      const prevPitch = pointerMapRef.current.get(e.pointerId);
+      if (prevPitch !== undefined && prevPitch !== targetMidi) {
+        pointerMapRef.current.set(e.pointerId, targetMidi);
+        if (prevPitch !== -1) {
+          const stillHeld = Array.from(pointerMapRef.current.values()).includes(prevPitch);
+          if (!stillHeld) {
+            handleNoteEnd(prevPitch);
+          }
+        }
+        handleNoteStart(targetMidi);
       }
     }
   }, [handleNoteStart, handleNoteEnd]);
@@ -343,6 +372,7 @@ export const PlayablePiano2D: React.FC<PlayablePiano2DProps> = ({
       <div
         ref={keyboardViewportRef}
         className="keyboard-viewport"
+        onPointerMove={handleViewportPointerMove}
         onPointerLeave={(e) => {
           if (pointerMapRef.current.has(e.pointerId)) {
             const pitch = pointerMapRef.current.get(e.pointerId);

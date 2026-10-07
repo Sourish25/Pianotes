@@ -221,7 +221,14 @@
   -webkit-touch-callout: none;
 }
 
+.white-key *, .black-key * {
+  pointer-events: none;
+}
+
 @media (max-height: 520px) and (orientation: landscape) {
+  .octave-navigator {
+    display: none !important;
+  }
   .keyboard-keys-container {
     height: 170px;
     padding-bottom: 6px;

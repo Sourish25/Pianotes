@@ -124,7 +124,7 @@ export const VirtuosoSummaryModal: React.FC<VirtuosoSummaryModalProps> = ({
           </div>
 
           {/* Responsive 2-column landscape grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
+          <div className="grid grid-cols-1 sm:grid-cols-2 landscape:grid-cols-2 gap-4 items-center">
             {/* Left Column: Star Rating, Rank Badge, Final Score & Accuracy */}
             <div className="flex flex-col items-center justify-center text-center">
               <div className="flex items-center justify-center gap-1.5 mb-2">

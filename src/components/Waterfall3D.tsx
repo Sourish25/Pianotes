@@ -541,7 +541,7 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
           className="floating-chord-badge"
           style={{
             top: '20%',
-            left: '18%',
+            left: 'max(85px, 18%)',
             transform: 'translate(-50%, -50%)',
           }}
         >

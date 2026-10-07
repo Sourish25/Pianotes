@@ -812,7 +812,7 @@ export const App: React.FC = () => {
 
         {/* Wait-for-Me Prompt Pill */}
         {waitingForPitch && (
-          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 animate-bounce">
+          <div className={`absolute ${isZenMode ? 'top-4' : 'top-16'} left-1/2 -translate-x-1/2 z-50 animate-bounce transition-all duration-300`}>
             <div
               className={`flex items-center gap-2.5 px-4 py-2 rounded-full border shadow-2xl backdrop-blur-xl ${
                 waitingForPitch.hand === 'left'
@@ -860,8 +860,8 @@ export const App: React.FC = () => {
         {(viewportMode === 'piano2d' || viewportMode === 'dual') && (
           <div
             className={`relative w-full ${
-              viewportMode === 'dual' ? 'flex-none min-h-[210px] sm:min-h-[250px]' : 'h-full'
-            } transition-all duration-300 overflow-hidden flex flex-col justify-end`}
+              viewportMode === 'dual' ? 'flex-none min-h-[225px] sm:min-h-[265px]' : 'h-full'
+            } transition-all duration-300 overflow-hidden flex flex-col justify-start`}
           >
             <PlayablePiano2D
               activeKeys={activeNotes}

@@ -95,6 +95,22 @@ export const PracticeBar: React.FC<PracticeBarProps> = ({
     return false;
   });
 
+  // Dynamic auto-compact on mobile landscape rotation / resize
+  useEffect(() => {
+    const handleResize = () => {
+      const isMobileLandscape = window.innerHeight <= 520 && window.innerWidth > window.innerHeight;
+      if (isMobileLandscape) {
+        setIsCompact(true);
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    window.addEventListener('orientationchange', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('orientationchange', handleResize);
+    };
+  }, []);
+
   // Auto-dim / Zen fade during uninterrupted playback
   useEffect(() => {
     if (!isPlaying) {
