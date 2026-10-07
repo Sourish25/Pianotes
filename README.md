@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Version: 2.4.0](https://img.shields.io/badge/Release-v2.4.0-blue.svg?style=for-the-badge)
+![Version: 2.5.0](https://img.shields.io/badge/Release-v2.5.0-blue.svg?style=for-the-badge)
 ![Android](https://img.shields.io/badge/Android_APK-3DDC84?style=for-the-badge&logo=android&logoColor=white)
 ![License: MIT](https://img.shields.io/badge/License-MIT-purple.svg?style=for-the-badge)
 ![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)
@@ -53,16 +53,17 @@ Whether you want to learn classical masterpieces with the intelligent **"Wait-fo
   <img src="docs/screenshots/dual-viewport.jpg" alt="Pianotes Dual Viewport and Practice Bar" width="100%" style="border-radius: 16px; margin: 16px 0;" />
 </div>
 
-- **3D Perspective Waterfall Viewport (v2.4.0 Grand Concert Overhaul)**:
-  - **Lower-Third Responsive Camera Anchoring**: Mathematical aspect-ratio compensation (`28 / (0.93 * aspect * tanHalfFov)`) fitting all 88 keys to 92–94% screen width and anchoring keys in the lower 15–25% across phones and tablets, completely eliminating dead black space.
-  - **ResizeObserver WebGL Viewport**: Instant camera frustum and WebGL canvas resolution resizing when toggling between Dual View and Solo 3D modes.
-  - **Steinway Obsidian Lacquer Fallboard Mirror & Gold Crest**: Ultra-glossy obsidian fallboard mirror (`Z = STRIKE_Z + 0.1`, `roughness: 0.12`, `metalness: 0.86`) reflecting cascading crystal notes and strike sparks, crowned with an embossed gold Steinway-style acoustic crest.
-  - **Luminous Crystal Notes & White-Hot Strike Lips**: Refractive compound crystal notes with white-hot neon front strike lips (`emissiveIntensity: 1.6`) and expanded shockwave rings (pool-capped at 24 instances).
-  - **Cosmic Starfield & Deep Nebula Atmosphere**: 850 multi-spectral twinkling stars across depth coordinates with sine-wave twinkle pulsation, bathed in an ambient violet-indigo celestial nebula plane (`0x24124d`).
-  - **4 Switchable Camera Presets**: One-tap toggling between **Grand Concert** (concert hall perspective), **Pianist POV** (performer eye-level), **Top-Down Arcade** (overhead falling lanes), and **Orbit** (organic sway).
+- **3D Perspective Waterfall Viewport (v2.5.0 Tactile Engine & Visual Atmosphere)**:
+  - **Direct 3D Tactile Piano Touch & 3D Glissando**: Three.js `Raycaster` camera intersection pipeline enabling players to tap, chord, and slide fingers directly on the 88-key 3D piano keys with vertical touch depth velocity sensitivity (forte 0.90 to piano 0.50).
+  - **100% Key Clearance via Docked Transport Pill**: In Solo 3D mode, the `CompactTransportPill` is tucked into the bottom-left corner over A0/B0 bass keys, giving Middle C (C4–G4) and all melody keys 100% clearance with zero occlusion.
+  - **Procedural Feathered Radial Celestial Nebula**: Custom 512x256 radial alpha gradient falloff texture replacing flat rectangular meshes, producing seamless, organic cosmic haze across the starfield with zero hard edges.
+  - **Steinway Obsidian Front Apron Stretcher Rail & Gold Brass Bevel**: Solid piano casing modeled below the white key overhang with gold brass inlay, grounding the instrument with authentic physical mass.
+  - **Dynamic Key Impact Specular PointLight**: Real-time PointLight tracking the center of active chords, casting colored specular bounce reflections onto the mirror fallboard, Steinway gold crest, and damper felt.
+  - **Flush Damper Felt Ribbon Alignment**: Crimson damper felt ribbon tucked flush against the fallboard base, eliminating felt occlusion on black key roots in POV and Top-Down modes.
+  - **Extended 5.5s Lookahead Vista & Exponential Fog**: 77-unit cascading waterfall vista with `THREE.FogExp2(0x040407, 0.007)` dissolving the distant runway into the stars.
+  - **4 Switchable Camera Presets**: One-tap toggling between **Grand Concert**, **Pianist POV**, **Top-Down Arcade**, and **Orbit** (organic sway).
   - **Hand Separation Colorway**: Left Hand violet (`#a855f7`) and Right Hand amber (`#f59e0b`) cascading crystal note bars.
-  - **Dynamic Mechanical Key Tilting**: Keys pivot realistically on a balance pin fulcrum when struck.
-  - **Interactive Camera Navigation**: Orbit, pinch-zoom, and instant reset.
+  - **Dynamic Mechanical Key Tilting**: Keys pivot realistically on a balance pin fulcrum with snappy attack and damped hammer felt recoil.
   - **Floating Harmonic Chord Badge**: Real-time harmonic chord recognition (`Fm`, `C`, `Ab`, `Bb`, etc.) anchored safely without blocking oncoming notes.
 - **2D Standalone Playable Piano**:
   - Full 88-key keyboard (MIDI 21 $A_0$ to MIDI 108 $C_8$) with white and black key physics.

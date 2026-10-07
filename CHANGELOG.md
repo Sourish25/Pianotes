@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.5.0] - 2026-10-07
+
+### 🎹 Tactile 3D Piano Engine, Reflective Glass Runway & Feathered Radial Nebula
+- **Direct 3D Tactile Piano Touch & 3D Glissando**:
+  - Implemented Three.js `Raycaster` camera intersection pipeline on the 88-key 3D piano keys.
+  - Multi-touch pointer map (`active3DPointersRef`) supporting chord strikes and sliding across keys for authentic 3D glissando.
+  - Vertical touch depth velocity sensitivity: striking near the front white key lip yields forte (`0.90`), while striking near the root yields piano (`0.50`).
+  - Pointer interactions discriminate between 3D piano keys (triggering audio, haptics, shockwaves, and key dips) and the background canvas (triggering smooth camera drag rotation).
+- **100% Key Clearance in Solo 3D Mode via Docked Transport Pill**:
+  - Docked the `CompactTransportPill` into the bottom-left corner of the 3D viewport (above A0/B0 bass keys, with safe area inset margins).
+  - Passed `hasPianoKeyboard={true}` across all modes, completely eliminating the floating Practice Bar from occluding Middle C (C4–G4) in 3D mode.
+  - Tapping "Tools" expands the full practice control sheet above the keys.
+- **Procedural Feathered Radial Celestial Nebula**:
+  - Replaced flat rectangular background mesh with a procedural 512x256 radial gradient texture with smooth alpha falloff (`rgba(88,28,135,0.42)` to transparent `rgba(0,0,0,0)`), completely eliminating hard rectangular boundary lines in the starfield.
+- **Steinway Front Apron Stretcher Rail & Gold Brass Bevel**:
+  - Modeled a polished obsidian front stretcher rail (`BoxGeometry(57.2, 0.75, 0.45)`) below the white key overhang, crowned with an embossed gold brass bevel line (`0xd4af37`), giving the 3D piano solid concert grand mass.
+- **Dynamic Key Impact Specular PointLight**:
+  - Real-time PointLight tracking the centroid of active notes, dynamically shifting between Electric Violet (`0xa855f7`) for Left Hand and Radiant Amber (`0xf59e0b`) for Right Hand.
+  - Pulses specular bounce highlights across the obsidian mirror fallboard, Steinway gold crest, and damper felt during key strikes.
+- **Flush Damper Felt Ribbon Alignment**:
+  - Repositioned the crimson damper felt ribbon to sit flush against the fallboard base (`Z = STRIKE_Z + 0.12`), preventing felt blocks from overlapping black key roots in POV and Top-Down modes.
+- **Extended 5.5s Lookahead Waterfall Vista & Exponential Fog**:
+  - Expanded `VISIBLE_WINDOW` from 4.5s to 5.5s (77 units into the distance), streaming notes from deep in the cosmos down to the keybed.
+  - Integrated `THREE.FogExp2(0x040407, 0.007)` to seamlessly blend the distant runway into the cosmic starfield.
+- **Quality Assurance**:
+  - Expanded unit test suite to 67 passing tests (`vitest`).
+  - Zero lint errors and zero warnings (`oxlint`).
+  - Clean native Android APKs built via Gradle.
+
+---
+
 ## [2.4.0] - 2026-10-07
 
 ### 🌌 3D Grand Concert Engine, Obsidian Fallboard Mirror & Celestial Atmosphere

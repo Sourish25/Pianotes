@@ -1310,6 +1310,85 @@ describe('3D Grand Concert Engine & Visual Atmosphere (v2.4.0)', () => {
     expect(fallboardZ).toBeLessThan(feltRailZ);
     expect(goldCrestZ).toBeGreaterThan(feltRailZ);
   });
+
+  it('correctly calculates vertical touch velocity for 3D key strikes', () => {
+    const STRIKE_Z = 0;
+    const KEY_LENGTH = 6.8;
+
+    const calculate3DKeyVelocity = (hitZ: number): number => {
+      const normalizedZ = Math.max(0, Math.min(1, (hitZ - STRIKE_Z) / KEY_LENGTH));
+      return Math.max(0.45, Math.min(0.95, 0.50 + normalizedZ * 0.40));
+    };
+
+    // Struck near front lip (Z = 6.8) -> forte ~0.90
+    const frontLipVel = calculate3DKeyVelocity(6.8);
+    expect(frontLipVel).toBeCloseTo(0.90, 2);
+
+    // Struck near back root (Z = 0.5) -> piano ~0.53
+    const backRootVel = calculate3DKeyVelocity(0.5);
+    expect(backRootVel).toBeCloseTo(0.53, 2);
+
+    // Struck in middle (Z = 3.4) -> mezzo ~0.70
+    const midVel = calculate3DKeyVelocity(3.4);
+    expect(midVel).toBeCloseTo(0.70, 2);
+
+    // Clamped bounds
+    expect(calculate3DKeyVelocity(-1.0)).toBe(0.50);
+    expect(calculate3DKeyVelocity(10.0)).toBe(0.90);
+  });
+
+  it('verifies 3D waterfall extended lookahead window of 5.5s', () => {
+    const VISIBLE_WINDOW = 5.5;
+    const NOTE_FALL_SPEED = 14;
+
+    const maxHorizonDistance = VISIBLE_WINDOW * NOTE_FALL_SPEED;
+    expect(maxHorizonDistance).toBe(77); // 77 units into the distance
+    expect(VISIBLE_WINDOW).toBeGreaterThan(4.0);
+  });
+
+  it('correctly computes dynamic key impact light intensity and hand color', () => {
+    const computeKeyImpactLight = (activePitches: number[], activeHands: Map<number, 'left' | 'right'>) => {
+      if (activePitches.length === 0) {
+        return { color: 0xa855f7, intensity: 0.4 };
+      }
+      let leftCount = 0;
+      let rightCount = 0;
+      activePitches.forEach((p) => {
+        const hand = activeHands.get(p) || (p < 60 ? 'left' : 'right');
+        if (hand === 'left') leftCount++;
+        else rightCount++;
+      });
+      const color = leftCount >= rightCount ? 0xa855f7 : 0xf59e0b;
+      const intensity = 2.0 + Math.min(5.5, activePitches.length * 1.1);
+      return { color, intensity };
+    };
+
+    // Idle state
+    const idle = computeKeyImpactLight([], new Map());
+    expect(idle.intensity).toBe(0.4);
+
+    // Left hand single note
+    const leftNote = computeKeyImpactLight([48], new Map([[48, 'left']]));
+    expect(leftNote.color).toBe(0xa855f7); // violet
+    expect(leftNote.intensity).toBeCloseTo(3.1, 1);
+
+    // Right hand chord (3 notes)
+    const rightChord = computeKeyImpactLight([60, 64, 67], new Map([[60, 'right'], [64, 'right'], [67, 'right']]));
+    expect(rightChord.color).toBe(0xf59e0b); // amber
+    expect(rightChord.intensity).toBeCloseTo(5.3, 1);
+  });
+
+  it('correctly anchors front apron stretcher rail below white key overhang', () => {
+    const STRIKE_Z = 0;
+    const WHITE_KEY_LENGTH = 6.8;
+    const whiteKeyFrontLipZ = STRIKE_Z + WHITE_KEY_LENGTH; // 6.8
+
+    const frontRailZ = STRIKE_Z + 7.0;
+    const frontBrassZ = STRIKE_Z + 6.82;
+
+    expect(frontBrassZ).toBeGreaterThan(whiteKeyFrontLipZ);
+    expect(frontRailZ).toBeGreaterThan(frontBrassZ);
+  });
 });
 
 

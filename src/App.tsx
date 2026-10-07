@@ -960,6 +960,22 @@ export const App: React.FC = () => {
               isDualView={viewportMode === 'dual'}
               isZenMode={isZenMode}
               onToggleZenMode={() => setIsZenMode((prev) => !prev)}
+              onUserPlayKey={(pitch, vel) => handleUserPlayKey(pitch, false, vel)}
+              onUserReleaseKey={handleUserReleaseKey}
+              transportControls={
+                viewportMode === 'waterfall3d' ? (
+                  <CompactTransportPill
+                    isPlaying={isPlaying}
+                    isCountingIn={countInState?.active}
+                    onTogglePlay={handleTogglePlay}
+                    currentTime={currentTime}
+                    duration={currentSong.duration}
+                    activeHand={activeHand}
+                    onChangeHand={setActiveHand}
+                    onExpandPracticeBar={() => setIsPracticeBarExpanded(true)}
+                  />
+                ) : undefined
+              }
             />
           </div>
         )}
@@ -1104,7 +1120,7 @@ export const App: React.FC = () => {
         isCountInEnabled={isCountInEnabled}
         onToggleCountIn={() => setIsCountInEnabled(!isCountInEnabled)}
         isCountingIn={countInState?.active ?? false}
-        hasPianoKeyboard={viewportMode === 'dual' || viewportMode === 'piano2d'}
+        hasPianoKeyboard={true}
         isExpanded={isPracticeBarExpanded}
         onToggleExpand={setIsPracticeBarExpanded}
       />

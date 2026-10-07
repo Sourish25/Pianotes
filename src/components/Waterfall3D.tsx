@@ -17,6 +17,9 @@ interface Waterfall3DProps {
   isDualView?: boolean;
   isZenMode?: boolean;
   onToggleZenMode?: () => void;
+  onUserPlayKey?: (pitch: number, velocity?: number) => void;
+  onUserReleaseKey?: (pitch: number) => void;
+  transportControls?: React.ReactNode;
 }
 
 interface Particle {
@@ -43,6 +46,9 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
   isDualView = false,
   isZenMode = false,
   onToggleZenMode,
+  onUserPlayKey,
+  onUserReleaseKey,
+  transportControls,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [activeChordName, setActiveChordName] = useState<string | null>(null);
@@ -63,6 +69,20 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
   const shockwavesRef = useRef<Shockwave[]>([]);
   const violetLightRef = useRef<THREE.PointLight | null>(null);
   const amberLightRef = useRef<THREE.PointLight | null>(null);
+  const keyImpactLightRef = useRef<THREE.PointLight | null>(null);
+
+  // Direct 3D Tactile Piano Touch Tracking (PointerId -> MIDI Pitch)
+  const onUserPlayKeyRef = useRef(onUserPlayKey);
+  const onUserReleaseKeyRef = useRef(onUserReleaseKey);
+  const active3DPointersRef = useRef<Map<number, number>>(new Map());
+
+  useEffect(() => {
+    onUserPlayKeyRef.current = onUserPlayKey;
+  }, [onUserPlayKey]);
+
+  useEffect(() => {
+    onUserReleaseKeyRef.current = onUserReleaseKey;
+  }, [onUserReleaseKey]);
 
   // Synchronous refs for 60fps render loop to avoid effect re-allocations
   const currentTimeRef = useRef(currentTime);
@@ -93,7 +113,7 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
   // Time & strike constants
   const NOTE_FALL_SPEED = 14; // units per second
   const STRIKE_Z = 0; // Strike line Z position
-  const VISIBLE_WINDOW = 4.5; // Look ahead in seconds
+  const VISIBLE_WINDOW = 5.5; // Look ahead in seconds (extended majestic concert vista)
   const KEY_MIN_MIDI = 21; // A0
   const KEY_MAX_MIDI = 108; // C8
 
@@ -197,6 +217,9 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
     container.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
+    // Exponential Cosmic Fog to seamlessly blend distant waterfall runway into infinite space
+    scene.fog = new THREE.FogExp2(0x040407, 0.007);
+
     // Ambient Lighting
     const ambientLight = new THREE.AmbientLight(0x28203d, 2.8);
     scene.add(ambientLight);
@@ -218,16 +241,22 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
     scene.add(amberLight);
     amberLightRef.current = amberLight;
 
-    // Ground High-Gloss Lacquered Obsidian Mirror Bed Plane
-    const bedGeo = new THREE.PlaneGeometry(85, 110);
+    // Dynamic Center Key Impact Specular Bounce Light
+    const keyImpactLight = new THREE.PointLight(0xa855f7, 0.6, 52);
+    keyImpactLight.position.set(0, 2.6, STRIKE_Z + 1.2);
+    scene.add(keyImpactLight);
+    keyImpactLightRef.current = keyImpactLight;
+
+    // Ground High-Gloss Lacquered Obsidian Mirror Runway Plane
+    const bedGeo = new THREE.PlaneGeometry(94, 140);
     const bedMat = new THREE.MeshStandardMaterial({
-      color: 0x05060b,
-      roughness: 0.16,
-      metalness: 0.88,
+      color: 0x06070f,
+      roughness: 0.12,
+      metalness: 0.90,
     });
     const bedMesh = new THREE.Mesh(bedGeo, bedMat);
     bedMesh.rotation.x = -Math.PI / 2;
-    bedMesh.position.set(0, -0.6, -30);
+    bedMesh.position.set(0, -0.62, -35);
     scene.add(bedMesh);
 
     // Cosmic Starfield & Nebula Dust Cloud (850 twinkling stars)
@@ -274,17 +303,32 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
     scene.add(starPoints);
     starsPointsRef.current = starPoints;
 
-    // Horizon Cosmic Nebula Cloud Plane (subtle deep celestial aura)
-    const nebulaGeo = new THREE.PlaneGeometry(160, 55);
+    // Horizon Cosmic Nebula Cloud Plane with Soft Radial Falloff (Zero Hard Edges)
+    const nebulaCanvas = document.createElement('canvas');
+    nebulaCanvas.width = 512;
+    nebulaCanvas.height = 256;
+    const nctx = nebulaCanvas.getContext('2d');
+    if (nctx) {
+      const grad = nctx.createRadialGradient(256, 128, 20, 256, 128, 240);
+      grad.addColorStop(0, 'rgba(88, 28, 135, 0.42)');
+      grad.addColorStop(0.35, 'rgba(49, 16, 82, 0.28)');
+      grad.addColorStop(0.7, 'rgba(24, 10, 48, 0.10)');
+      grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      nctx.fillStyle = grad;
+      nctx.fillRect(0, 0, 512, 256);
+    }
+    const nebulaTex = new THREE.CanvasTexture(nebulaCanvas);
+
+    const nebulaGeo = new THREE.PlaneGeometry(280, 110);
     const nebulaMat = new THREE.MeshBasicMaterial({
-      color: 0x24124d,
+      map: nebulaTex,
       transparent: true,
-      opacity: 0.32,
       side: THREE.DoubleSide,
       blending: THREE.AdditiveBlending,
+      depthWrite: false,
     });
     const nebulaMesh = new THREE.Mesh(nebulaGeo, nebulaMat);
-    nebulaMesh.position.set(0, 18, -90);
+    nebulaMesh.position.set(0, 24, -95);
     scene.add(nebulaMesh);
 
     // Octave Neon Guide Lane Dividers (C1, C2, C3, C4, C5, C6, C7)
@@ -331,15 +375,15 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
     glowMesh.position.set(0, 0.06, STRIKE_Z + 0.9);
     scene.add(glowMesh);
 
-    // Steinway Crimson Red Damper Felt Rail behind 3D Keys
-    const feltGeo = new THREE.BoxGeometry(56, 0.32, 0.7);
+    // Steinway Crimson Red Damper Felt Ribbon kissing the mirror fallboard base
+    const feltGeo = new THREE.BoxGeometry(56, 0.22, 0.32);
     const feltMat = new THREE.MeshStandardMaterial({
-      color: 0xb91c1c, // crimson damper felt
-      roughness: 0.88,
+      color: 0x991b1b, // rich crimson damper felt
+      roughness: 0.90,
       metalness: 0.05,
     });
     const feltRail = new THREE.Mesh(feltGeo, feltMat);
-    feltRail.position.set(0, 0.45, STRIKE_Z + 0.35);
+    feltRail.position.set(0, 0.52, STRIKE_Z + 0.12);
     scene.add(feltRail);
 
     // Steinway Obsidian Lacquer Fallboard Mirror (Reflecting cascading notes and strike flashes)
@@ -398,6 +442,30 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
     rightBrass.position.set(getNoteX(108) + 0.35, 0.65, STRIKE_Z + 3.4);
     scene.add(rightBrass);
 
+    // Polished Obsidian Front Stretcher Rail (Piano Keybed Apron)
+    const frontRailGeo = new THREE.BoxGeometry(57.2, 0.75, 0.45);
+    const frontRailMat = new THREE.MeshStandardMaterial({
+      color: 0x080910,
+      roughness: 0.14,
+      metalness: 0.85,
+    });
+    const frontRailMesh = new THREE.Mesh(frontRailGeo, frontRailMat);
+    frontRailMesh.position.set(0, -0.25, STRIKE_Z + 7.0);
+    scene.add(frontRailMesh);
+
+    // Front Gold Brass Bevel Accent Line
+    const frontBrassGeo = new THREE.BoxGeometry(56.8, 0.06, 0.06);
+    const frontBrassMat = new THREE.MeshStandardMaterial({
+      color: 0xd4af37,
+      roughness: 0.25,
+      metalness: 0.95,
+      emissive: 0x654710,
+      emissiveIntensity: 0.35,
+    });
+    const frontBrassMesh = new THREE.Mesh(frontBrassGeo, frontBrassMat);
+    frontBrassMesh.position.set(0, 0.12, STRIKE_Z + 6.82);
+    scene.add(frontBrassMesh);
+
     // Build 3D Piano Keys on the Strike Plane with Beveled Mechanical Fulcrum
     const keyGroup = new THREE.Group();
     scene.add(keyGroup);
@@ -418,6 +486,7 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
       });
 
       const keyMesh = new THREE.Mesh(keyGeo, keyMat);
+      keyMesh.userData = { pitch: midi };
       const posX = getNoteX(midi);
       keyMesh.position.set(posX, yOffset, STRIKE_Z + 3.4 + zOffset);
       keyGroup.add(keyMesh);
@@ -457,13 +526,102 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
     const TAP_THRESHOLD_MS = 320;
     const TAP_DISTANCE_THRESHOLD = 25; // px
 
-    // Pointer Drag Rotation & Double-Tap Handlers
+    // 3D Key Raycasting & Camera Orbit Interaction System
+    const raycaster = new THREE.Raycaster();
+    const mouseNDC = new THREE.Vector2();
+
+    const getRaycastKeyPitch = (e: PointerEvent): { pitch: number; velocity: number } | null => {
+      if (!containerRef.current || !cameraRef.current) return null;
+      const rect = containerRef.current.getBoundingClientRect();
+      const ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      const ndcY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      mouseNDC.set(ndcX, ndcY);
+      raycaster.setFromCamera(mouseNDC, cameraRef.current);
+
+      const keyMeshes = Array.from(keyMeshesRef.current.values());
+      const hits = raycaster.intersectObjects(keyMeshes, false);
+      if (hits.length > 0) {
+        const hit = hits[0];
+        const pitch = hit.object.userData.pitch as number;
+        if (typeof pitch === 'number') {
+          // Dynamic vertical touch velocity calculation (front lip = forte 0.90, back root = piano 0.50)
+          const hitZ = hit.point.z;
+          const normalizedZ = Math.max(0, Math.min(1, (hitZ - STRIKE_Z) / 6.8));
+          const velocity = Math.max(0.45, Math.min(0.95, 0.50 + normalizedZ * 0.40));
+          return { pitch, velocity };
+        }
+      }
+      return null;
+    };
+
+    // Pointer Down: Raycast against 3D Piano Keys or Begin Camera Orbit Drag
     const handlePointerDown = (e: PointerEvent) => {
+      const keyHit = getRaycastKeyPitch(e);
+      if (keyHit) {
+        // Direct tactile 3D piano strike!
+        active3DPointersRef.current.set(e.pointerId, keyHit.pitch);
+        if (onUserPlayKeyRef.current) {
+          onUserPlayKeyRef.current(keyHit.pitch, keyHit.velocity);
+        }
+        triggerHaptic('light');
+
+        // Immediate visual shockwave on the struck 3D key
+        const posX = getNoteX(keyHit.pitch);
+        const isLeft = keyHit.pitch < 60;
+        if (shockwavesRef.current.length < 24) {
+          const sMat = new THREE.MeshBasicMaterial({
+            color: isLeft ? 0xc084fc : 0xfde047,
+            transparent: true,
+            opacity: 0.85,
+            side: THREE.DoubleSide,
+            blending: THREE.AdditiveBlending,
+          });
+          const sMesh = new THREE.Mesh(shockwaveGeo, sMat);
+          sMesh.position.set(posX, 0.12, STRIKE_Z);
+          scene.add(sMesh);
+          shockwavesRef.current.push({
+            mesh: sMesh,
+            life: 0,
+            maxLife: 0.38,
+            maxRadius: 2.2,
+          });
+        }
+        return; // Intercept event: do NOT start camera orbit drag!
+      }
+
+      // No key hit: begin camera drag orbit
       isDraggingRef.current = true;
       dragStartRef.current = { x: e.clientX, y: e.clientY };
     };
 
+    // Pointer Move: Multi-Touch 3D Glissando or Camera Orbit Rotation
     const handlePointerMove = (e: PointerEvent) => {
+      if (active3DPointersRef.current.has(e.pointerId)) {
+        // Active finger on 3D keyboard: check for 3D glissando!
+        const currentPitch = active3DPointersRef.current.get(e.pointerId)!;
+        const keyHit = getRaycastKeyPitch(e);
+        if (keyHit) {
+          if (keyHit.pitch !== currentPitch) {
+            // Slid onto a different 3D key: seamless 3D glissando
+            if (onUserReleaseKeyRef.current) {
+              onUserReleaseKeyRef.current(currentPitch);
+            }
+            active3DPointersRef.current.set(e.pointerId, keyHit.pitch);
+            if (onUserPlayKeyRef.current) {
+              onUserPlayKeyRef.current(keyHit.pitch, keyHit.velocity);
+            }
+            triggerHaptic('light');
+          }
+        } else {
+          // Finger slid off keybed
+          if (onUserReleaseKeyRef.current) {
+            onUserReleaseKeyRef.current(currentPitch);
+          }
+          active3DPointersRef.current.delete(e.pointerId);
+        }
+        return;
+      }
+
       if (!isDraggingRef.current) return;
       const dx = e.clientX - dragStartRef.current.x;
       const dy = e.clientY - dragStartRef.current.y;
@@ -473,7 +631,17 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
       cameraAngleRef.current.pitch = Math.max(-0.25, Math.min(0.35, cameraAngleRef.current.pitch + dy * 0.004));
     };
 
+    // Pointer Up: Release Struck 3D Key or Finalize Camera Orbit & Double-Tap
     const handlePointerUp = (e: PointerEvent) => {
+      if (active3DPointersRef.current.has(e.pointerId)) {
+        const pitch = active3DPointersRef.current.get(e.pointerId)!;
+        if (onUserReleaseKeyRef.current) {
+          onUserReleaseKeyRef.current(pitch);
+        }
+        active3DPointersRef.current.delete(e.pointerId);
+        return;
+      }
+
       isDraggingRef.current = false;
 
       const target = e.target as HTMLElement | null;
@@ -513,6 +681,7 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
     container.addEventListener('pointerdown', handlePointerDown);
     window.addEventListener('pointermove', handlePointerMove);
     window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerUp);
     container.addEventListener('wheel', handleWheel, { passive: false });
     container.addEventListener('dblclick', handleDblClick);
 
@@ -695,9 +864,16 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
         }
       });
 
-      // Include user-played keys in keyboard lighting
+      // Include user-played keys and direct 3D touched keys in keyboard lighting
       const userKeys = userPlayedKeysRef.current;
       userKeys.forEach((p) => {
+        if (!activeStrikingPitches.includes(p)) {
+          activeStrikingPitches.push(p);
+          activePitchHands.set(p, p < 60 ? 'left' : 'right');
+        }
+      });
+
+      active3DPointersRef.current.forEach((p) => {
         if (!activeStrikingPitches.includes(p)) {
           activeStrikingPitches.push(p);
           activePitchHands.set(p, p < 60 ? 'left' : 'right');
@@ -710,9 +886,10 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
         const baseY = keyBaseYRef.current.get(midi) || 0;
         const targetY = isDepressed ? baseY - 0.35 : baseY;
         const targetRotX = isDepressed ? 0.08 : 0; // Fulcrum mechanical downward tilt
+        const lerpFactor = isDepressed ? 0.48 : 0.36; // Snappy attack, damped physical hammer recoil
 
-        keyMesh.position.y += (targetY - keyMesh.position.y) * 0.42;
-        keyMesh.rotation.x += (targetRotX - keyMesh.rotation.x) * 0.42;
+        keyMesh.position.y += (targetY - keyMesh.position.y) * lerpFactor;
+        keyMesh.rotation.x += (targetRotX - keyMesh.rotation.x) * lerpFactor;
 
         const mat = keyMesh.material as THREE.MeshStandardMaterial;
         if (isDepressed) {
@@ -741,6 +918,21 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
       if (amberLightRef.current) {
         const targetA = 3.5 + Math.min(6, rightStrikes * 1.4);
         amberLightRef.current.intensity += (targetA - amberLightRef.current.intensity) * 0.18;
+      }
+
+      // Dynamic Center Key Impact Specular Bounce Light Tracking Active Chords
+      if (keyImpactLightRef.current) {
+        if (activeStrikingPitches.length > 0) {
+          const avgActiveX =
+            activeStrikingPitches.reduce((acc, p) => acc + getNoteX(p), 0) / activeStrikingPitches.length;
+          keyImpactLightRef.current.position.x += (avgActiveX - keyImpactLightRef.current.position.x) * 0.22;
+          const targetColor = leftStrikes >= rightStrikes ? 0xa855f7 : 0xf59e0b;
+          keyImpactLightRef.current.color.setHex(targetColor);
+          const targetIntensity = 2.0 + Math.min(5.5, activeStrikingPitches.length * 1.1);
+          keyImpactLightRef.current.intensity += (targetIntensity - keyImpactLightRef.current.intensity) * 0.25;
+        } else {
+          keyImpactLightRef.current.intensity += (0.4 - keyImpactLightRef.current.intensity) * 0.1;
+        }
       }
 
       // Update Shockwaves
@@ -915,6 +1107,7 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
 
     const noteGroups = noteGroupsRef.current;
     const shockwaves = shockwavesRef.current;
+    const activePointers = active3DPointersRef.current;
     const domElement = renderer.domElement;
 
     return () => {
@@ -922,10 +1115,18 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
       container.removeEventListener('pointerdown', handlePointerDown);
       window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerUp);
       container.removeEventListener('wheel', handleWheel);
       container.removeEventListener('dblclick', handleDblClick);
       window.removeEventListener('resize', handleResize);
       resizeObserver.disconnect();
+
+      activePointers.forEach((pitch) => {
+        if (onUserReleaseKeyRef.current) {
+          onUserReleaseKeyRef.current(pitch);
+        }
+      });
+      activePointers.clear();
 
       noteGroups.forEach((group) => {
         scene.remove(group);
@@ -1077,6 +1278,19 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
           <span className="hidden sm:inline">Reset</span>
         </button>
       </div>
+
+      {/* Docked 3D Transport Controls in Solo 3D Mode */}
+      {transportControls && !isZenMode && (
+        <div
+          className="absolute z-30 pointer-events-auto transition-all duration-300"
+          style={{
+            left: 'max(16px, env(safe-area-inset-left, 16px))',
+            bottom: 'max(14px, env(safe-area-inset-bottom, 14px))',
+          }}
+        >
+          {transportControls}
+        </div>
+      )}
     </div>
   );
 };
