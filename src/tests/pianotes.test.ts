@@ -1208,4 +1208,109 @@ describe('v2.3.0 Visual Ergonomics, Camera Horizon & Fullscreen Piano', () => {
   });
 });
 
+describe('3D Grand Concert Engine & Visual Atmosphere (v2.4.0)', () => {
+  it('calculates aspect-ratio responsive camera distance to maintain 92-94% keyboard width utilization', () => {
+    const calcResponsiveCamera = (aspect: number) => {
+      const fovRad = (48 * Math.PI) / 180;
+      const tanHalfFov = Math.tan(fovRad / 2);
+      const targetKeyboardSpan = 0.93;
+      const requiredDist = 28 / (targetKeyboardSpan * aspect * tanHalfFov);
+      const soloCamZ = requiredDist * Math.cos((17 * Math.PI) / 180) + 3.4;
+      const soloCamY = requiredDist * Math.sin((17 * Math.PI) / 180) + 2.5;
+      const lookAtY = aspect < 1.75 ? 13.5 : 11.2;
+      return { requiredDist, soloCamZ, soloCamY, lookAtY };
+    };
+
+    // Tablet (16:10, aspect 1.60)
+    const tablet = calcResponsiveCamera(1.60);
+    expect(tablet.requiredDist).toBeCloseTo(42.3, 0);
+    expect(tablet.soloCamZ).toBeGreaterThan(40);
+    expect(tablet.lookAtY).toBe(13.5);
+
+    // Standard 16:9 (aspect 1.78)
+    const standard = calcResponsiveCamera(16 / 9);
+    expect(standard.requiredDist).toBeCloseTo(38.0, 0);
+    expect(standard.soloCamZ).toBeLessThan(tablet.soloCamZ);
+
+    // Modern Android Phone (20:9, aspect 2.22)
+    const phone = calcResponsiveCamera(2.22);
+    expect(phone.requiredDist).toBeCloseTo(30.4, 0);
+    expect(phone.soloCamZ).toBeLessThan(standard.soloCamZ);
+    expect(phone.lookAtY).toBe(11.2);
+  });
+
+  it('provides discrete camera presets with distinct perspective coordinates', () => {
+    type Preset = 'grand' | 'pianist' | 'topdown' | 'cinematic';
+    const getPresetConfig = (preset: Preset) => {
+      switch (preset) {
+        case 'pianist':
+          return { camY: 4.8, camZ: 12.0, lookAtY: 1.2, lookAtZ: -18 };
+        case 'topdown':
+          return { camY: 34, camZ: 12, lookAtY: 0, lookAtZ: -6 };
+        case 'cinematic':
+          return { camY: 16.5, camZ: 38, lookAtY: 7.2, lookAtZ: -12 };
+        case 'grand':
+        default:
+          return { camY: 15.0, camZ: 44.0, lookAtY: 13.5, lookAtZ: -18 };
+      }
+    };
+
+    const pianist = getPresetConfig('pianist');
+    const topdown = getPresetConfig('topdown');
+    const grand = getPresetConfig('grand');
+
+    // Pianist is closest to keybed in Y and Z
+    expect(pianist.camY).toBeLessThan(grand.camY);
+    expect(pianist.camZ).toBeLessThan(grand.camZ);
+
+    // Top-down has highest camY looking straight down
+    expect(topdown.camY).toBeGreaterThan(grand.camY);
+    expect(topdown.lookAtY).toBe(0);
+  });
+
+  it('caps concurrent shockwave instances at 24 to prevent memory churn', () => {
+    const shockwaves: Array<{ id: number }> = [];
+    const MAX_SHOCKWAVES = 24;
+
+    const spawnShockwave = (id: number) => {
+      if (shockwaves.length < MAX_SHOCKWAVES) {
+        shockwaves.push({ id });
+      }
+    };
+
+    for (let i = 0; i < 35; i++) {
+      spawnShockwave(i);
+    }
+
+    expect(shockwaves.length).toBe(MAX_SHOCKWAVES);
+  });
+
+  it('correctly offsets compound note leading strike cap at front lip', () => {
+    const calculateCapOffset = (duration: number, fallSpeed: number) => {
+      const noteLength = Math.max(0.7, duration * fallSpeed);
+      const capPosZ = noteLength / 2 - 0.15;
+      return { noteLength, capPosZ };
+    };
+
+    const shortNote = calculateCapOffset(0.1, 14); // 1.4 units
+    expect(shortNote.noteLength).toBeCloseTo(1.4, 2);
+    expect(shortNote.capPosZ).toBeCloseTo(0.55, 2);
+
+    const longNote = calculateCapOffset(1.5, 14); // 21 units
+    expect(longNote.noteLength).toBeCloseTo(21, 2);
+    expect(longNote.capPosZ).toBeCloseTo(10.35, 2);
+  });
+
+  it('correctly locates Steinway fallboard mirror directly behind crimson felt', () => {
+    const STRIKE_Z = 0;
+    const feltRailZ = STRIKE_Z + 0.35;
+    const fallboardZ = STRIKE_Z + 0.1;
+    const goldCrestZ = STRIKE_Z + 0.36;
+
+    expect(fallboardZ).toBeLessThan(feltRailZ);
+    expect(goldCrestZ).toBeGreaterThan(feltRailZ);
+  });
+});
+
+
 

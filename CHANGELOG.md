@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.4.0] - 2026-10-07
+
+### 🌌 3D Grand Concert Engine, Obsidian Fallboard Mirror & Celestial Atmosphere
+- **Mathematical Aspect-Ratio Aware Lower-Third Camera Anchoring**:
+  - Implemented dynamic FOV compensation (`requiredDist = 28 / (0.93 * aspect * tanHalfFov)`) ensuring all 88 keys span 92–94% of the viewport width across tablets (16:10, 4:3) and widescreen phones (16:9, 20:9).
+  - Anchors the 3D keyboard cleanly in the lower 15–25% of the screen, completely eliminating the previous 48% black void beneath the keys.
+- **ResizeObserver WebGL Integration**:
+  - Added dedicated `ResizeObserver` on the 3D container, instantly updating camera aspect ratio, projection matrix, and WebGL renderer resolution when switching between Dual View (`h-[50%]`) and Solo 3D Waterfall (`h-full`).
+- **Steinway Obsidian Lacquer Fallboard Mirror & Gold Crest**:
+  - Modeled high-gloss obsidian fallboard mirror (`Z = STRIKE_Z + 0.1`, `roughness: 0.12`, `metalness: 0.86`) reflecting falling notes and strike flashes directly behind the damper felt.
+  - Embossed gold Steinway & Sons style acoustic crest (`0xd4af37`, `emissiveIntensity: 0.45`) crowning the center fallboard.
+- **Luminous Crystal Notes & White-Hot Strike Lips**:
+  - Re-engineered falling notes into compound crystal geometries with refractive crystal core bodies and white-hot neon front strike lips (`emissiveIntensity: 1.6` on active key strikes).
+  - Expanded shockwave rings capped at 24 concurrent pooled instances (`RingGeometry` rotated -90° on X) to prevent garbage collection pauses.
+- **Cosmic Starfield & Deep Nebula Atmosphere**:
+  - 850 multi-spectral twinkling stars across depth coordinates with sine-wave twinkle pulsation.
+  - Deep indigo-violet celestial nebula plane (`0x24124d`) bathing the horizon in ambient luminescence.
+- **4 Real-Time Switchable Camera Presets**:
+  - **Grand Concert**: Full 88-key concert depth, lower-third anchored.
+  - **Pianist POV**: Eye-level performer seat view looking down the keybed.
+  - **Top-Down Arcade**: Elevated overhead view with crystal falling lanes.
+  - **Orbit**: Lissajous glider view with organic sway and smooth interpolation.
+- **Comprehensive Test Suite & Native Builds**:
+  - 63 unit tests passing (`vitest`).
+  - 0 lint errors (`oxlint`).
+  - Clean native Android APKs built via Gradle (`Pianotes-release.apk` and `Pianotes-debug.apk`).
+
+---
+
 ## [2.3.0] - 2026-10-07
 
 ### 🚀 Docked Transport Rail, Fullscreen 2D Piano Expansion, Camera Horizon & Safe HUD Offsets

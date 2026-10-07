@@ -3,7 +3,9 @@ import * as THREE from 'three';
 import type { NoteEvent, HandType } from '../types';
 import { detectChord } from '../utils/chordDetector';
 import { triggerHaptic } from '../utils/haptics';
-import { Camera } from 'lucide-react';
+import { Camera, Eye, Compass } from 'lucide-react';
+
+export type CameraPreset = 'grand' | 'pianist' | 'topdown' | 'cinematic';
 
 interface Waterfall3DProps {
   notes: NoteEvent[];
@@ -11,7 +13,7 @@ interface Waterfall3DProps {
   isPlaying: boolean;
   activeHand: HandType;
   userPlayedKeys?: number[];
-  speed?: number; // visual waterfall speed
+  speed?: number;
   isDualView?: boolean;
   isZenMode?: boolean;
   onToggleZenMode?: () => void;
@@ -26,6 +28,13 @@ interface Particle {
   maxLife: number;
 }
 
+interface Shockwave {
+  mesh: THREE.Mesh;
+  life: number;
+  maxLife: number;
+  maxRadius: number;
+}
+
 export const Waterfall3D: React.FC<Waterfall3DProps> = ({
   notes,
   currentTime,
@@ -38,6 +47,7 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const [activeChordName, setActiveChordName] = useState<string | null>(null);
   const [activeNotesList, setActiveNotesList] = useState<number[]>([]);
+  const [cameraPreset, setCameraPreset] = useState<CameraPreset>('grand');
 
   // 3D Scene Refs
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -45,10 +55,14 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const keyMeshesRef = useRef<Map<number, THREE.Mesh>>(new Map());
   const keyBaseYRef = useRef<Map<number, number>>(new Map());
-  const noteMeshesRef = useRef<Map<string, THREE.Mesh>>(new Map());
+  const noteGroupsRef = useRef<Map<string, THREE.Group>>(new Map());
   const particlesRef = useRef<Particle[]>([]);
   const particlePointsRef = useRef<THREE.Points | null>(null);
   const strikeLineMeshRef = useRef<THREE.Mesh | null>(null);
+  const starsPointsRef = useRef<THREE.Points | null>(null);
+  const shockwavesRef = useRef<Shockwave[]>([]);
+  const violetLightRef = useRef<THREE.PointLight | null>(null);
+  const amberLightRef = useRef<THREE.PointLight | null>(null);
 
   // Synchronous refs for 60fps render loop to avoid effect re-allocations
   const currentTimeRef = useRef(currentTime);
@@ -56,6 +70,11 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
   const activeHandRef = useRef(activeHand);
   const userPlayedKeysRef = useRef(userPlayedKeys);
   const isDualViewRef = useRef(isDualView);
+  const cameraPresetRef = useRef<CameraPreset>(cameraPreset);
+
+  useEffect(() => {
+    cameraPresetRef.current = cameraPreset;
+  }, [cameraPreset]);
 
   const onToggleZenModeRef = useRef(onToggleZenMode);
   useEffect(() => {
@@ -117,12 +136,20 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
   useEffect(() => {
     const scene = sceneRef.current;
     if (!scene) return;
-    noteMeshesRef.current.forEach((mesh) => {
-      scene.remove(mesh);
-      mesh.geometry.dispose();
-      (mesh.material as THREE.Material).dispose();
+    noteGroupsRef.current.forEach((group) => {
+      scene.remove(group);
+      group.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          child.geometry.dispose();
+          if (Array.isArray(child.material)) {
+            child.material.forEach((m) => m.dispose());
+          } else {
+            child.material.dispose();
+          }
+        }
+      });
     });
-    noteMeshesRef.current.clear();
+    noteGroupsRef.current.clear();
   }, [notes, activeHand]);
 
   // Initialize Three.js Scene ONCE on mount
@@ -134,20 +161,27 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
     const height = container.clientHeight;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x050508);
-    scene.fog = new THREE.FogExp2(0x050508, 0.015);
+    scene.background = new THREE.Color(0x040407);
+    scene.fog = new THREE.FogExp2(0x040407, 0.013);
     sceneRef.current = scene;
 
     const camera = new THREE.PerspectiveCamera(48, width / height, 0.1, 1000);
     const aspect = width / height;
-    const isTabletRatio = aspect < 1.85;
-    const initialCamY = isDualViewRef.current ? (isTabletRatio ? 15 : 18) : (isTabletRatio ? 11 : 12.5);
-    const initialCamZ = isDualViewRef.current ? (isTabletRatio ? 24 : 26) : (isTabletRatio ? 22.5 : 24);
+    const fovRad = (48 * Math.PI) / 180;
+    const tanHalfFov = Math.tan(fovRad / 2);
+    const targetKeyboardSpan = 0.93;
+    const requiredDist = 28 / (targetKeyboardSpan * aspect * tanHalfFov);
+    const initialCamZ = isDualViewRef.current
+      ? (aspect < 1.85 ? 22 : 20)
+      : requiredDist * Math.cos((17 * Math.PI) / 180) + 3.4;
+    const initialCamY = isDualViewRef.current
+      ? (aspect < 1.85 ? 18 : 16)
+      : requiredDist * Math.sin((17 * Math.PI) / 180) + 2.5;
     camera.position.set(0, initialCamY, initialCamZ);
     if (isDualViewRef.current) {
-      camera.lookAt(0, isTabletRatio ? 2.5 : 2.0, -8);
+      camera.lookAt(0, aspect < 1.85 ? 7.5 : 6.0, -10);
     } else {
-      camera.lookAt(0, isTabletRatio ? 3.8 : 3.0, -6);
+      camera.lookAt(0, aspect < 1.75 ? 13.5 : 11.2, -18);
     }
     cameraRef.current = camera;
 
@@ -159,67 +193,212 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.15;
+    renderer.toneMappingExposure = 1.2;
     container.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
-    // Ambient and Directional Lighting
-    const ambientLight = new THREE.AmbientLight(0x221c35, 2.5);
+    // Ambient Lighting
+    const ambientLight = new THREE.AmbientLight(0x28203d, 2.8);
     scene.add(ambientLight);
 
-    const keyLight = new THREE.DirectionalLight(0xffffff, 2.8);
-    keyLight.position.set(10, 30, 20);
+    // Directional Key Light
+    const keyLight = new THREE.DirectionalLight(0xfff8ed, 3.2);
+    keyLight.position.set(12, 34, 22);
     scene.add(keyLight);
 
-    // Violet atmospheric rim light (Left Hand)
-    const violetLight = new THREE.PointLight(0xa855f7, 4.5, 55);
-    violetLight.position.set(-18, 8, 4);
+    // Dynamic Violet Rim Light (Left Hand)
+    const violetLight = new THREE.PointLight(0xa855f7, 3.5, 65);
+    violetLight.position.set(-18, 9, 3);
     scene.add(violetLight);
+    violetLightRef.current = violetLight;
 
-    // Amber atmospheric rim light (Right Hand)
-    const amberLight = new THREE.PointLight(0xf59e0b, 4.5, 55);
-    amberLight.position.set(18, 8, 4);
+    // Dynamic Amber Rim Light (Right Hand)
+    const amberLight = new THREE.PointLight(0xf59e0b, 3.5, 65);
+    amberLight.position.set(18, 9, 3);
     scene.add(amberLight);
+    amberLightRef.current = amberLight;
 
-    // Ground reflective piano bed plane
-    const bedGeo = new THREE.PlaneGeometry(75, 85);
+    // Ground High-Gloss Lacquered Obsidian Mirror Bed Plane
+    const bedGeo = new THREE.PlaneGeometry(85, 110);
     const bedMat = new THREE.MeshStandardMaterial({
-      color: 0x07080f,
-      roughness: 0.25,
-      metalness: 0.85,
+      color: 0x05060b,
+      roughness: 0.16,
+      metalness: 0.88,
     });
     const bedMesh = new THREE.Mesh(bedGeo, bedMat);
     bedMesh.rotation.x = -Math.PI / 2;
-    bedMesh.position.set(0, -0.6, -25);
+    bedMesh.position.set(0, -0.6, -30);
     scene.add(bedMesh);
 
+    // Cosmic Starfield & Nebula Dust Cloud (850 twinkling stars)
+    const starCount = 850;
+    const starGeo = new THREE.BufferGeometry();
+    const starPositions = new Float32Array(starCount * 3);
+    const starColors = new Float32Array(starCount * 3);
+
+    for (let i = 0; i < starCount; i++) {
+      starPositions[i * 3] = (Math.random() - 0.5) * 130;
+      starPositions[i * 3 + 1] = Math.random() * 48 + 1.5;
+      starPositions[i * 3 + 2] = -Math.random() * 95 - 12;
+
+      const tint = Math.random();
+      if (tint < 0.45) {
+        // Violet star
+        starColors[i * 3] = 0.8;
+        starColors[i * 3 + 1] = 0.6;
+        starColors[i * 3 + 2] = 1.0;
+      } else if (tint < 0.75) {
+        // Warm gold star
+        starColors[i * 3] = 1.0;
+        starColors[i * 3 + 1] = 0.82;
+        starColors[i * 3 + 2] = 0.45;
+      } else {
+        // Diamond cyan/white star
+        starColors[i * 3] = 0.9;
+        starColors[i * 3 + 1] = 0.95;
+        starColors[i * 3 + 2] = 1.0;
+      }
+    }
+
+    starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+    starGeo.setAttribute('color', new THREE.BufferAttribute(starColors, 3));
+
+    const starMat = new THREE.PointsMaterial({
+      size: 0.55,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.75,
+      blending: THREE.AdditiveBlending,
+    });
+    const starPoints = new THREE.Points(starGeo, starMat);
+    scene.add(starPoints);
+    starsPointsRef.current = starPoints;
+
+    // Horizon Cosmic Nebula Cloud Plane (subtle deep celestial aura)
+    const nebulaGeo = new THREE.PlaneGeometry(160, 55);
+    const nebulaMat = new THREE.MeshBasicMaterial({
+      color: 0x24124d,
+      transparent: true,
+      opacity: 0.32,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+    });
+    const nebulaMesh = new THREE.Mesh(nebulaGeo, nebulaMat);
+    nebulaMesh.position.set(0, 18, -90);
+    scene.add(nebulaMesh);
+
+    // Octave Neon Guide Lane Dividers (C1, C2, C3, C4, C5, C6, C7)
+    const laneGroup = new THREE.Group();
+    const laneGeo = new THREE.BoxGeometry(0.04, 0.02, 75);
+    const laneMat = new THREE.MeshBasicMaterial({
+      color: 0x8b5cf6,
+      transparent: true,
+      opacity: 0.16,
+      blending: THREE.AdditiveBlending,
+    });
+
+    [24, 36, 48, 60, 72, 84, 96].forEach((midi) => {
+      const laneMesh = new THREE.Mesh(laneGeo, laneMat);
+      const posX = getNoteX(midi) - 0.31;
+      laneMesh.position.set(posX, 0.02, -37.5);
+      laneGroup.add(laneMesh);
+    });
+    scene.add(laneGroup);
+
     // Glowing Laser Strike Line
-    const strikeGeo = new THREE.BoxGeometry(56, 0.2, 0.35);
+    const strikeGeo = new THREE.BoxGeometry(56, 0.22, 0.38);
     const strikeMat = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       transparent: true,
-      opacity: 0.95,
+      opacity: 0.98,
     });
     const strikeLine = new THREE.Mesh(strikeGeo, strikeMat);
     strikeLine.position.set(0, 0.1, STRIKE_Z);
     scene.add(strikeLine);
     strikeLineMeshRef.current = strikeLine;
 
-    // Strike line halo neon glow ribbon
-    const glowGeo = new THREE.PlaneGeometry(58, 2.4);
+    // Strike Line Halo Neon Glow Ribbon
+    const glowGeo = new THREE.PlaneGeometry(58, 2.6);
     const glowMat = new THREE.MeshBasicMaterial({
       color: 0x9333ea,
       transparent: true,
-      opacity: 0.45,
+      opacity: 0.52,
       side: THREE.DoubleSide,
       blending: THREE.AdditiveBlending,
     });
     const glowMesh = new THREE.Mesh(glowGeo, glowMat);
     glowMesh.rotation.x = -Math.PI / 2;
-    glowMesh.position.set(0, 0.05, STRIKE_Z + 0.8);
+    glowMesh.position.set(0, 0.06, STRIKE_Z + 0.9);
     scene.add(glowMesh);
 
-    // Build 3D Piano Keys on the Strike Plane
+    // Steinway Crimson Red Damper Felt Rail behind 3D Keys
+    const feltGeo = new THREE.BoxGeometry(56, 0.32, 0.7);
+    const feltMat = new THREE.MeshStandardMaterial({
+      color: 0xb91c1c, // crimson damper felt
+      roughness: 0.88,
+      metalness: 0.05,
+    });
+    const feltRail = new THREE.Mesh(feltGeo, feltMat);
+    feltRail.position.set(0, 0.45, STRIKE_Z + 0.35);
+    scene.add(feltRail);
+
+    // Steinway Obsidian Lacquer Fallboard Mirror (Reflecting cascading notes and strike flashes)
+    const fallboardGeo = new THREE.BoxGeometry(56.8, 3.8, 0.5);
+    const fallboardMat = new THREE.MeshStandardMaterial({
+      color: 0x07080f,
+      roughness: 0.12,
+      metalness: 0.86,
+    });
+    const fallboardMesh = new THREE.Mesh(fallboardGeo, fallboardMat);
+    fallboardMesh.position.set(0, 1.9, STRIKE_Z + 0.1);
+    scene.add(fallboardMesh);
+
+    // Steinway-Style Gold Embossed Center Crest Line
+    const crestGeo = new THREE.BoxGeometry(4.8, 0.08, 0.06);
+    const crestMat = new THREE.MeshStandardMaterial({
+      color: 0xd4af37,
+      roughness: 0.25,
+      metalness: 0.95,
+      emissive: 0x785614,
+      emissiveIntensity: 0.45,
+    });
+    const crestMesh = new THREE.Mesh(crestGeo, crestMat);
+    crestMesh.position.set(0, 2.8, STRIKE_Z + 0.36);
+    scene.add(crestMesh);
+
+    // Luxury Piano Cheek Blocks (Flanking A0 and C8)
+    const cheekGeo = new THREE.BoxGeometry(1.3, 1.5, 7.2);
+    const cheekMat = new THREE.MeshStandardMaterial({
+      color: 0x0e0f14,
+      roughness: 0.18,
+      metalness: 0.75,
+    });
+
+    const leftCheek = new THREE.Mesh(cheekGeo, cheekMat);
+    leftCheek.position.set(getNoteX(21) - 1.05, 0.65, STRIKE_Z + 3.4);
+    scene.add(leftCheek);
+
+    const rightCheek = new THREE.Mesh(cheekGeo, cheekMat);
+    rightCheek.position.set(getNoteX(108) + 1.05, 0.65, STRIKE_Z + 3.4);
+    scene.add(rightCheek);
+
+    // Gold Brass Accent Inlays on Cheek Blocks
+    const brassGeo = new THREE.BoxGeometry(0.12, 1.4, 7.1);
+    const brassMat = new THREE.MeshStandardMaterial({
+      color: 0xd4af37, // polished gold brass
+      roughness: 0.28,
+      metalness: 0.92,
+    });
+
+    const leftBrass = new THREE.Mesh(brassGeo, brassMat);
+    leftBrass.position.set(getNoteX(21) - 0.35, 0.65, STRIKE_Z + 3.4);
+    scene.add(leftBrass);
+
+    const rightBrass = new THREE.Mesh(brassGeo, brassMat);
+    rightBrass.position.set(getNoteX(108) + 0.35, 0.65, STRIKE_Z + 3.4);
+    scene.add(rightBrass);
+
+    // Build 3D Piano Keys on the Strike Plane with Beveled Mechanical Fulcrum
     const keyGroup = new THREE.Group();
     scene.add(keyGroup);
 
@@ -233,9 +412,9 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
 
       const keyGeo = new THREE.BoxGeometry(kWidth, height, length);
       const keyMat = new THREE.MeshStandardMaterial({
-        color: black ? 0x141416 : 0xf2f2f4,
-        roughness: black ? 0.35 : 0.15,
-        metalness: black ? 0.4 : 0.1,
+        color: black ? 0x141416 : 0xf4f4f7,
+        roughness: black ? 0.32 : 0.14,
+        metalness: black ? 0.35 : 0.08,
       });
 
       const keyMesh = new THREE.Mesh(keyGeo, keyMat);
@@ -247,8 +426,8 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
       keyBaseYRef.current.set(midi, yOffset);
     }
 
-    // Particle Burst System Setup
-    const maxParticles = 600;
+    // Particle Burst System Setup (Sparks & Fireworks)
+    const maxParticles = 900;
     const particleGeo = new THREE.BufferGeometry();
     const particlePositions = new Float32Array(maxParticles * 3);
     const particleColors = new Float32Array(maxParticles * 3);
@@ -257,16 +436,20 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
     particleGeo.setAttribute('color', new THREE.BufferAttribute(particleColors, 3));
 
     const particleMat = new THREE.PointsMaterial({
-      size: 0.6,
+      size: 0.65,
       vertexColors: true,
       transparent: true,
-      opacity: 0.95,
+      opacity: 0.98,
       blending: THREE.AdditiveBlending,
     });
 
     const particlePoints = new THREE.Points(particleGeo, particleMat);
     scene.add(particlePoints);
     particlePointsRef.current = particlePoints;
+
+    // Shockwave Ring Shared Geometry & Material Template
+    const shockwaveGeo = new THREE.RingGeometry(0.25, 0.45, 24);
+    shockwaveGeo.rotateX(-Math.PI / 2);
 
     // Double-Tap on Canvas Gesture Detection (for instant Immersive Zen Mode toggle)
     let lastTapTime = 0;
@@ -293,7 +476,6 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
     const handlePointerUp = (e: PointerEvent) => {
       isDraggingRef.current = false;
 
-      // Check if tap was on the 3D waterfall canvas container
       const target = e.target as HTMLElement | null;
       if (container.contains(target)) {
         const now = performance.now();
@@ -302,7 +484,6 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
         const dy = Math.abs(e.clientY - lastTapPos.y);
 
         if (timeDiff < TAP_THRESHOLD_MS && dx < TAP_DISTANCE_THRESHOLD && dy < TAP_DISTANCE_THRESHOLD) {
-          // Double-tap gesture on canvas confirmed!
           if (onToggleZenModeRef.current) {
             triggerHaptic('medium');
             onToggleZenModeRef.current();
@@ -335,19 +516,33 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
     container.addEventListener('wheel', handleWheel, { passive: false });
     container.addEventListener('dblclick', handleDblClick);
 
-    // Window Resize Handler
+    // Window & Container Resize Handling (reacts to both browser window and view mode transitions)
     const handleResize = () => {
       if (!containerRef.current || !rendererRef.current || !cameraRef.current) return;
       const w = containerRef.current.clientWidth;
       const h = containerRef.current.clientHeight;
-      cameraRef.current.aspect = w / h;
-      cameraRef.current.updateProjectionMatrix();
-      rendererRef.current.setSize(w, h);
+      if (w > 0 && h > 0) {
+        cameraRef.current.aspect = w / h;
+        cameraRef.current.updateProjectionMatrix();
+        rendererRef.current.setSize(w, h);
+      }
     };
 
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width: w, height: h } = entry.contentRect;
+        if (w > 0 && h > 0 && cameraRef.current && rendererRef.current) {
+          cameraRef.current.aspect = w / h;
+          cameraRef.current.updateProjectionMatrix();
+          rendererRef.current.setSize(w, h);
+        }
+      }
+    });
+
+    resizeObserver.observe(container);
     window.addEventListener('resize', handleResize);
 
-    // Continuous 60fps Render Loop
+    // Continuous 60/120fps Render Loop
     let animId: number;
     let lastChordUpdate = 0;
 
@@ -358,40 +553,70 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
       const activeStrikingPitches: number[] = [];
       const activePitchHands = new Map<number, 'left' | 'right'>();
 
-      // Update Falling Notes
+      // Update Falling Luminous Crystal Notes with Leading Strike Caps
       const notesToRender = filteredNotesRef.current;
       notesToRender.forEach((note) => {
         const timeUntilStrike = note.startTime - curTime;
         const timeSinceEnd = curTime - (note.startTime + note.duration);
 
         if (timeUntilStrike <= VISIBLE_WINDOW && timeSinceEnd <= 0.25) {
-          let mesh = noteMeshesRef.current.get(note.id);
+          let group = noteGroupsRef.current.get(note.id);
           const isLeftHand = note.hand === 'left';
-          const noteLength = Math.max(0.65, note.duration * NOTE_FALL_SPEED);
+          const noteLength = Math.max(0.7, note.duration * NOTE_FALL_SPEED);
 
-          if (!mesh) {
+          if (!group) {
+            group = new THREE.Group();
             const width = isBlackKey(note.pitch) ? 0.44 : 0.56;
-            const geo = new THREE.BoxGeometry(width, 0.42, 1);
+
+            // 1. Crystal Note Body Mesh
+            const bodyGeo = new THREE.BoxGeometry(width, 0.38, 1);
             const color = isLeftHand ? 0xa855f7 : 0xf59e0b;
             const emissiveColor = isLeftHand ? 0x9333ea : 0xd97706;
 
-            const mat = new THREE.MeshStandardMaterial({
+            const bodyMat = new THREE.MeshStandardMaterial({
               color,
               emissive: emissiveColor,
               emissiveIntensity: 0.65,
-              roughness: 0.15,
-              metalness: 0.35,
+              roughness: 0.12,
+              metalness: 0.42,
+              transparent: true,
+              opacity: 0.94,
             });
 
-            mesh = new THREE.Mesh(geo, mat);
-            scene.add(mesh);
-            noteMeshesRef.current.set(note.id, mesh);
+            const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+            bodyMesh.name = 'body';
+            group.add(bodyMesh);
+
+            // 2. Luminous Leading Strike Cap (Hot Neon Front Lip)
+            const capGeo = new THREE.BoxGeometry(width + 0.04, 0.44, 0.3);
+            const capMat = new THREE.MeshBasicMaterial({
+              color: 0xffffff,
+              transparent: true,
+              opacity: 0.96,
+            });
+            const capMesh = new THREE.Mesh(capGeo, capMat);
+            capMesh.name = 'cap';
+            group.add(capMesh);
+
+            scene.add(group);
+            noteGroupsRef.current.set(note.id, group);
           }
 
-          mesh.scale.set(1, 1, noteLength);
+          // Scale and position note group
+          const bodyMesh = group.getObjectByName('body') as THREE.Mesh;
+          const capMesh = group.getObjectByName('cap') as THREE.Mesh;
+
+          if (bodyMesh) {
+            bodyMesh.scale.set(1, 1, noteLength);
+          }
+          if (capMesh) {
+            // Position cap right at the leading strike face of the note
+            capMesh.position.set(0, 0.02, noteLength / 2 - 0.15);
+          }
+
           const posX = getNoteX(note.pitch);
           const posZ = STRIKE_Z - timeUntilStrike * NOTE_FALL_SPEED - noteLength / 2;
-          mesh.position.set(posX, 0.5, posZ);
+          group.position.set(posX, 0.5, posZ);
 
           // Check if actively striking the line
           const isStriking = curTime >= note.startTime && curTime <= note.startTime + note.duration;
@@ -399,8 +624,13 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
             activeStrikingPitches.push(note.pitch);
             activePitchHands.set(note.pitch, note.hand);
 
-            // Cosmic particle burst
-            if (Math.random() < 0.4) {
+            if (bodyMesh) {
+              const bMat = bodyMesh.material as THREE.MeshStandardMaterial;
+              bMat.emissiveIntensity = 1.6; // Radiant strike bloom
+            }
+
+            // Cosmic particle burst & shockwaves
+            if (Math.random() < 0.45) {
               const sparkColor = isLeftHand ? new THREE.Color(0xd8b4fe) : new THREE.Color(0xfef08a);
               particlesRef.current.push({
                 position: new THREE.Vector3(
@@ -409,25 +639,58 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
                   STRIKE_Z + (Math.random() - 0.5) * 0.3
                 ),
                 velocity: new THREE.Vector3(
-                  (Math.random() - 0.5) * 5.0,
-                  Math.random() * 6.5 + 2.5,
-                  (Math.random() - 0.5) * 5.0
+                  (Math.random() - 0.5) * 5.5,
+                  Math.random() * 7.0 + 3.0,
+                  (Math.random() - 0.5) * 5.5
                 ),
                 color: sparkColor,
-                size: new THREE.Vector2(0.35, 0.35),
+                size: new THREE.Vector2(0.4, 0.4),
                 life: 0,
-                maxLife: 0.45 + Math.random() * 0.3,
+                maxLife: 0.48 + Math.random() * 0.32,
               });
+
+              // Spawn Expanding Neon Shockwave Ring on Strike Line
+              if (shockwavesRef.current.length < 24) {
+                const sMat = new THREE.MeshBasicMaterial({
+                  color: isLeftHand ? 0xc084fc : 0xfde047,
+                  transparent: true,
+                  opacity: 0.85,
+                  side: THREE.DoubleSide,
+                  blending: THREE.AdditiveBlending,
+                });
+                const sMesh = new THREE.Mesh(shockwaveGeo, sMat);
+                sMesh.position.set(posX, 0.12, STRIKE_Z);
+                scene.add(sMesh);
+                shockwavesRef.current.push({
+                  mesh: sMesh,
+                  life: 0,
+                  maxLife: 0.38,
+                  maxRadius: 2.4,
+                });
+              }
+            }
+          } else {
+            if (bodyMesh) {
+              const bMat = bodyMesh.material as THREE.MeshStandardMaterial;
+              bMat.emissiveIntensity = 0.65;
             }
           }
         } else {
-          // Dispose mesh outside view window
-          const mesh = noteMeshesRef.current.get(note.id);
-          if (mesh) {
-            scene.remove(mesh);
-            mesh.geometry.dispose();
-            (mesh.material as THREE.Material).dispose();
-            noteMeshesRef.current.delete(note.id);
+          // Dispose group outside view window
+          const group = noteGroupsRef.current.get(note.id);
+          if (group) {
+            scene.remove(group);
+            group.traverse((child) => {
+              if (child instanceof THREE.Mesh) {
+                child.geometry.dispose();
+                if (Array.isArray(child.material)) {
+                  child.material.forEach((m) => m.dispose());
+                } else {
+                  child.material.dispose();
+                }
+              }
+            });
+            noteGroupsRef.current.delete(note.id);
           }
         }
       });
@@ -455,14 +718,51 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
         if (isDepressed) {
           const hand = activePitchHands.get(midi) || (midi < 60 ? 'left' : 'right');
           mat.emissive.setHex(hand === 'left' ? 0xa855f7 : 0xf59e0b);
-          mat.emissiveIntensity = 0.95;
+          mat.emissiveIntensity = 1.15;
         } else {
           mat.emissive.setHex(0x000000);
           mat.emissiveIntensity = 0.0;
         }
       });
 
-      // Update Particle System
+      // Dynamic Concert Rim Light Intensities
+      let leftStrikes = 0;
+      let rightStrikes = 0;
+      activeStrikingPitches.forEach((p) => {
+        const hand = activePitchHands.get(p) || (p < 60 ? 'left' : 'right');
+        if (hand === 'left') leftStrikes++;
+        else rightStrikes++;
+      });
+
+      if (violetLightRef.current) {
+        const targetV = 3.5 + Math.min(6, leftStrikes * 1.4);
+        violetLightRef.current.intensity += (targetV - violetLightRef.current.intensity) * 0.18;
+      }
+      if (amberLightRef.current) {
+        const targetA = 3.5 + Math.min(6, rightStrikes * 1.4);
+        amberLightRef.current.intensity += (targetA - amberLightRef.current.intensity) * 0.18;
+      }
+
+      // Update Shockwaves
+      for (let i = shockwavesRef.current.length - 1; i >= 0; i--) {
+        const s = shockwavesRef.current[i];
+        s.life += 0.016;
+        const progress = s.life / s.maxLife;
+
+        if (progress >= 1.0) {
+          scene.remove(s.mesh);
+          (s.mesh.material as THREE.Material).dispose();
+          shockwavesRef.current.splice(i, 1);
+          continue;
+        }
+
+        const scale = 0.3 + (s.maxRadius - 0.3) * progress;
+        s.mesh.scale.set(scale, scale, 1);
+        const mat = s.mesh.material as THREE.MeshBasicMaterial;
+        mat.opacity = (1 - progress) * 0.85;
+      }
+
+      // Update Cosmic Particles
       const particlePoints = particlePointsRef.current;
       if (particlePoints) {
         const posAttr = particlePoints.geometry.getAttribute('position') as THREE.BufferAttribute;
@@ -508,6 +808,11 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
         colAttr.needsUpdate = true;
       }
 
+      // Dynamic Starfield Twinkle Drift
+      if (starsPointsRef.current) {
+        starsPointsRef.current.rotation.y = Math.sin(curTime * 0.04) * 0.012;
+      }
+
       // Dynamic Chord Detection & Active Octave framing (throttled to ~10Hz)
       if (timestamp - lastChordUpdate > 90) {
         lastChordUpdate = timestamp;
@@ -521,44 +826,86 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
         }
       }
 
-      // Smooth camera position with user drag angle and subtle focus towards active notes
+      // Smooth Camera Positioning & Preset Navigation
       const avgX =
         activeStrikingPitches.length > 0
           ? activeStrikingPitches.reduce((acc, p) => acc + getNoteX(p), 0) / activeStrikingPitches.length
           : 0;
 
-      // Dynamic aspect-ratio compensation: tablets (aspect < 1.85) have taller viewports.
-      // Adjusting lookAtY and camera height anchors the 3D keys closer to the bottom border.
       const aspect = camera.aspect;
       const isTabletRatio = aspect < 1.85;
+      const preset = cameraPresetRef.current;
 
-      // Freeze dynamic camera sway in Dual View to keep 3D notes permanently aligned with 2D piano keys below
-      const targetCamX = isDualViewRef.current
-        ? 0
-        : avgX * 0.2 + cameraAngleRef.current.yaw * 16;
-      const targetCamY = isDualViewRef.current
-        ? ((isTabletRatio ? 15 : 18) + cameraAngleRef.current.pitch * 14) * cameraAngleRef.current.zoom
-        : ((isTabletRatio ? 11 : 12.5) + cameraAngleRef.current.pitch * 12) * cameraAngleRef.current.zoom;
-      const targetCamZ = (isDualViewRef.current
-        ? (isTabletRatio ? 24 : 26)
-        : (isTabletRatio ? 22.5 : 24)
-      ) * cameraAngleRef.current.zoom;
+      // Aspect-ratio responsive distance so 88 keys span 92-94% of horizontal width across any Android screen
+      const fovRad = (48 * Math.PI) / 180;
+      const tanHalfFov = Math.tan(fovRad / 2);
+      const targetKeyboardSpan = 0.93; // 93% width utilization
+      const requiredDist = 28 / (targetKeyboardSpan * aspect * tanHalfFov);
+      const soloCamZ = requiredDist * Math.cos((17 * Math.PI) / 180) + 3.4;
+      const soloCamY = requiredDist * Math.sin((17 * Math.PI) / 180) + 2.5;
 
-      camera.position.x += (targetCamX - camera.position.x) * (isDualViewRef.current ? 0.2 : 0.08);
-      camera.position.y += (targetCamY - camera.position.y) * 0.08;
-      camera.position.z += (targetCamZ - camera.position.z) * 0.08;
-      if (isDualViewRef.current) {
-        const dualLookAtY = isTabletRatio ? 2.5 : 2.0;
-        camera.lookAt(0, dualLookAtY, -8);
+      let baseCamX = 0;
+      let baseCamY = soloCamY;
+      let baseCamZ = soloCamZ;
+      let baseLookAtX = 0;
+      let baseLookAtY = 7.5;
+      let baseLookAtZ = -12;
+
+      if (preset === 'pianist') {
+        // First-Person Performer Seat View looking down keybed
+        baseCamX = isDualViewRef.current ? 0 : avgX * 0.12;
+        baseCamY = isDualViewRef.current ? 6.5 : 4.8;
+        baseCamZ = isDualViewRef.current ? 14 : 12.0;
+        baseLookAtX = baseCamX * 0.3;
+        baseLookAtY = isDualViewRef.current ? 2.0 : 1.2;
+        baseLookAtZ = -18;
+      } else if (preset === 'topdown') {
+        // Modern Top-Down Horizon Arcade View
+        baseCamX = 0;
+        baseCamY = isDualViewRef.current ? 28 : 34;
+        baseCamZ = isDualViewRef.current ? 14 : 12;
+        baseLookAtX = 0;
+        baseLookAtY = 0;
+        baseLookAtZ = -6;
+      } else if (preset === 'cinematic') {
+        // Floating Lissajous Glider View
+        const swayX = Math.sin(curTime * 0.45) * 2.8;
+        const swayY = Math.cos(curTime * 0.35) * 1.2;
+        baseCamX = isDualViewRef.current ? 0 : swayX;
+        baseCamY = (isDualViewRef.current ? 16 : soloCamY) + swayY;
+        baseCamZ = isDualViewRef.current ? 20 : soloCamZ;
+        baseLookAtX = isDualViewRef.current ? 0 : swayX * 0.25;
+        baseLookAtY = isDualViewRef.current ? 6.5 : 7.2;
+        baseLookAtZ = -12;
       } else {
-        const soloLookAtY = isTabletRatio ? 3.8 : 3.0;
-        camera.lookAt(targetCamX * 0.25, soloLookAtY, -6);
+        // Default 'grand' Perspective
+        baseCamX = isDualViewRef.current ? 0 : avgX * 0.15 + cameraAngleRef.current.yaw * 16;
+        baseCamY = isDualViewRef.current
+          ? (isTabletRatio ? 18 : 16)
+          : soloCamY;
+        baseCamZ = isDualViewRef.current
+          ? (isTabletRatio ? 22 : 20)
+          : soloCamZ;
+        baseLookAtX = isDualViewRef.current ? 0 : baseCamX * 0.25;
+        baseLookAtY = isDualViewRef.current
+          ? (isTabletRatio ? 7.5 : 6.0)
+          : (aspect < 1.75 ? 13.5 : 11.2);
+        baseLookAtZ = isDualViewRef.current ? -10 : -18;
       }
 
-      // Pulse strike line neon glow
+      const targetCamX = baseCamX;
+      const targetCamY = (baseCamY + cameraAngleRef.current.pitch * 12) * cameraAngleRef.current.zoom;
+      const targetCamZ = baseCamZ * cameraAngleRef.current.zoom;
+
+      camera.position.x += (targetCamX - camera.position.x) * 0.08;
+      camera.position.y += (targetCamY - camera.position.y) * 0.08;
+      camera.position.z += (targetCamZ - camera.position.z) * 0.08;
+      camera.lookAt(baseLookAtX, baseLookAtY, baseLookAtZ);
+
+      // Pulse Strike Line Neon Glow
       if (strikeLineMeshRef.current) {
         const mat = strikeLineMeshRef.current.material as THREE.MeshBasicMaterial;
-        mat.opacity = 0.85 + Math.sin(curTime * 8) * 0.12;
+        mat.opacity = 0.88 + Math.sin(curTime * 8) * 0.1;
       }
 
       renderer.render(scene, camera);
@@ -566,7 +913,8 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
 
     animId = requestAnimationFrame(animate);
 
-    const noteMeshes = noteMeshesRef.current;
+    const noteGroups = noteGroupsRef.current;
+    const shockwaves = shockwavesRef.current;
     const domElement = renderer.domElement;
 
     return () => {
@@ -577,12 +925,30 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
       container.removeEventListener('wheel', handleWheel);
       container.removeEventListener('dblclick', handleDblClick);
       window.removeEventListener('resize', handleResize);
+      resizeObserver.disconnect();
 
-      noteMeshes.forEach((mesh) => {
-        mesh.geometry.dispose();
-        (mesh.material as THREE.Material).dispose();
+      noteGroups.forEach((group) => {
+        scene.remove(group);
+        group.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            child.geometry.dispose();
+            if (Array.isArray(child.material)) {
+              child.material.forEach((m) => m.dispose());
+            } else {
+              child.material.dispose();
+            }
+          }
+        });
       });
-      noteMeshes.clear();
+      noteGroups.clear();
+
+      shockwaves.forEach((s) => {
+        scene.remove(s.mesh);
+        (s.mesh.material as THREE.Material).dispose();
+      });
+      shockwaves.length = 0;
+
+      shockwaveGeo.dispose();
 
       if (domElement && domElement.parentNode === container) {
         container.removeChild(domElement);
@@ -592,7 +958,7 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
   }, []);
 
   return (
-    <div className="relative w-full h-full overflow-hidden select-none bg-[#050508]">
+    <div className="relative w-full h-full overflow-hidden select-none bg-[#040407]">
       {/* Three.js 3D WebGL Canvas with Drag Orbit */}
       <div
         ref={containerRef}
@@ -627,23 +993,88 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
         </div>
       )}
 
-      {/* Subtle 3D Camera Orbit & Zoom Reset Pill */}
+      {/* Interactive 3D Camera Controls & Angles Selector */}
       <div
-        className="absolute flex items-center gap-2 z-30 pointer-events-auto"
+        className="absolute flex items-center gap-1.5 z-30 pointer-events-auto"
         style={{
           top: isZenMode ? '12px' : '64px',
           right: 'max(16px, env(safe-area-inset-right, 16px))',
         }}
       >
+        {/* Preset Selector Pill */}
+        <div className="flex items-center p-0.5 rounded-full bg-black/60 border border-white/10 backdrop-blur-md shadow-lg text-[10px] font-medium">
+          <button
+            onClick={() => {
+              triggerHaptic('light');
+              setCameraPreset('grand');
+            }}
+            className={`px-2 py-0.5 rounded-full transition-all ${
+              cameraPreset === 'grand'
+                ? 'bg-purple-600 text-white font-bold shadow-[0_0_8px_rgba(168,85,247,0.4)]'
+                : 'text-zinc-400 hover:text-white'
+            }`}
+            title="Grand Perspective 3D"
+          >
+            Grand
+          </button>
+          <button
+            onClick={() => {
+              triggerHaptic('light');
+              setCameraPreset('pianist');
+            }}
+            className={`flex items-center gap-1 px-2 py-0.5 rounded-full transition-all ${
+              cameraPreset === 'pianist'
+                ? 'bg-purple-600 text-white font-bold shadow-[0_0_8px_rgba(168,85,247,0.4)]'
+                : 'text-zinc-400 hover:text-white'
+            }`}
+            title="Pianist First-Person POV"
+          >
+            <Eye className="w-2.5 h-2.5" />
+            <span className="hidden sm:inline">POV</span>
+          </button>
+          <button
+            onClick={() => {
+              triggerHaptic('light');
+              setCameraPreset('topdown');
+            }}
+            className={`px-2 py-0.5 rounded-full transition-all ${
+              cameraPreset === 'topdown'
+                ? 'bg-purple-600 text-white font-bold shadow-[0_0_8px_rgba(168,85,247,0.4)]'
+                : 'text-zinc-400 hover:text-white'
+            }`}
+            title="Top-Down Horizon"
+          >
+            Top-Down
+          </button>
+          <button
+            onClick={() => {
+              triggerHaptic('light');
+              setCameraPreset('cinematic');
+            }}
+            className={`flex items-center gap-1 px-2 py-0.5 rounded-full transition-all ${
+              cameraPreset === 'cinematic'
+                ? 'bg-purple-600 text-white font-bold shadow-[0_0_8px_rgba(168,85,247,0.4)]'
+                : 'text-zinc-400 hover:text-white'
+            }`}
+            title="Cinematic Orbit Glider"
+          >
+            <Compass className="w-2.5 h-2.5" />
+            <span className="hidden sm:inline">Orbit</span>
+          </button>
+        </div>
+
+        {/* Orbit / Zoom Reset Pill */}
         <button
           onClick={() => {
+            triggerHaptic('light');
             cameraAngleRef.current = { yaw: 0, pitch: 0, zoom: 1.0 };
+            setCameraPreset('grand');
           }}
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium text-zinc-400 hover:text-white bg-black/40 hover:bg-black/60 border border-white/10 backdrop-blur-md shadow-md transition-all active:scale-95"
-          title="Reset camera orbit and zoom (or double-click canvas)"
+          className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-medium text-zinc-400 hover:text-white bg-black/50 hover:bg-black/70 border border-white/10 backdrop-blur-md shadow-md transition-all active:scale-95"
+          title="Reset camera orientation and zoom"
         >
           <Camera className="w-3 h-3 text-purple-400" />
-          <span className="hidden sm:inline">Reset 3D</span>
+          <span className="hidden sm:inline">Reset</span>
         </button>
       </div>
     </div>
