@@ -4,6 +4,21 @@ import type { NoteEvent, HandType } from '../types';
 import { detectChord } from '../utils/chordDetector';
 import { triggerHaptic } from '../utils/haptics';
 import { Camera, Eye, Compass } from 'lucide-react';
+import {
+  NOTE_FALL_SPEED,
+  STRIKE_Z,
+  VISIBLE_WINDOW,
+  KEY_MIN_MIDI,
+  KEY_MAX_MIDI,
+  getNoteX,
+  isBlackKey,
+  calculateNoteBloom,
+  shouldEmitTrailingEmbers,
+  getOctaveMarkerData,
+  calculateKeybedUnderglow,
+  calculateRippleWave,
+  OCTAVE_PITCHES,
+} from '../utils/visualizer3DMath';
 
 export type CameraPreset = 'grand' | 'pianist' | 'topdown' | 'cinematic';
 
@@ -22,20 +37,36 @@ interface Waterfall3DProps {
   transportControls?: React.ReactNode;
 }
 
-interface Particle {
+// Low-Overhead Pre-Allocated Particle Pool (Zero GC Allocation Churn)
+interface PooledParticle {
+  active: boolean;
   position: THREE.Vector3;
   velocity: THREE.Vector3;
   color: THREE.Color;
-  size: THREE.Vector2;
   life: number;
   maxLife: number;
 }
 
-interface Shockwave {
+// Low-Overhead Pre-Allocated Shockwave Pool
+interface PooledShockwave {
+  active: boolean;
   mesh: THREE.Mesh;
+  material: THREE.MeshBasicMaterial;
   life: number;
   maxLife: number;
   maxRadius: number;
+}
+
+// Low-Overhead Pre-Allocated Floor Ripple Pool
+interface PooledFloorRipple {
+  active: boolean;
+  mesh: THREE.Mesh;
+  material: THREE.MeshBasicMaterial;
+  life: number;
+  maxLife: number;
+  maxRadius: number;
+  initialX: number;
+  initialZ: number;
 }
 
 export const Waterfall3D: React.FC<Waterfall3DProps> = ({
@@ -62,14 +93,25 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
   const keyMeshesRef = useRef<Map<number, THREE.Mesh>>(new Map());
   const keyBaseYRef = useRef<Map<number, number>>(new Map());
   const noteGroupsRef = useRef<Map<string, THREE.Group>>(new Map());
-  const particlesRef = useRef<Particle[]>([]);
   const particlePointsRef = useRef<THREE.Points | null>(null);
   const strikeLineMeshRef = useRef<THREE.Mesh | null>(null);
   const starsPointsRef = useRef<THREE.Points | null>(null);
-  const shockwavesRef = useRef<Shockwave[]>([]);
   const violetLightRef = useRef<THREE.PointLight | null>(null);
   const amberLightRef = useRef<THREE.PointLight | null>(null);
   const keyImpactLightRef = useRef<THREE.PointLight | null>(null);
+
+  // Audio-Reactive Keybed Underglow Refs
+  const keybedUnderglowLightRef = useRef<THREE.PointLight | null>(null);
+  const keybedUnderglowMeshRef = useRef<THREE.Mesh | null>(null);
+  const keybedApertureMeshRef = useRef<THREE.Mesh | null>(null);
+
+  // Octave Marker Plaques Ref (C1 - C7)
+  const octavePlaquesRef = useRef<Map<number, THREE.Mesh>>(new Map());
+
+  // Object Pools Refs
+  const particlePoolRef = useRef<PooledParticle[]>([]);
+  const shockwavesPoolRef = useRef<PooledShockwave[]>([]);
+  const ripplesPoolRef = useRef<PooledFloorRipple[]>([]);
 
   // Direct 3D Tactile Piano Touch Tracking (PointerId -> MIDI Pitch)
   const onUserPlayKeyRef = useRef(onUserPlayKey);
@@ -109,20 +151,6 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
   const cameraAngleRef = useRef({ yaw: 0, pitch: 0, zoom: 1.0 });
   const isDraggingRef = useRef(false);
   const dragStartRef = useRef({ x: 0, y: 0 });
-
-  // Time & strike constants
-  const NOTE_FALL_SPEED = 14; // units per second
-  const STRIKE_Z = 0; // Strike line Z position
-  const VISIBLE_WINDOW = 5.5; // Look ahead in seconds (extended majestic concert vista)
-  const KEY_MIN_MIDI = 21; // A0
-  const KEY_MAX_MIDI = 108; // C8
-
-  // Helper to determine key X coordinate
-  const getNoteX = (pitch: number): number => {
-    return (pitch - 64.5) * 0.62;
-  };
-
-  const isBlackKey = (pitch: number) => [1, 3, 6, 8, 10].includes(pitch % 12);
 
   // Filter notes based on active hand
   const filteredNotes = useMemo(() => {
@@ -182,7 +210,6 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x040407);
-    scene.fog = new THREE.FogExp2(0x040407, 0.013);
     sceneRef.current = scene;
 
     const camera = new THREE.PerspectiveCamera(48, width / height, 0.1, 1000);
@@ -198,6 +225,7 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
       ? (aspect < 1.85 ? 18 : 16)
       : requiredDist * Math.sin((17 * Math.PI) / 180) + 2.5;
     camera.position.set(0, initialCamY, initialCamZ);
+
     if (isDualViewRef.current) {
       camera.lookAt(0, aspect < 1.85 ? 7.5 : 6.0, -10);
     } else {
@@ -247,6 +275,12 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
     scene.add(keyImpactLight);
     keyImpactLightRef.current = keyImpactLight;
 
+    // Audio-Reactive Keybed Underglow Light (Illuminates beneath depressed keys)
+    const keybedUnderglowLight = new THREE.PointLight(0xa855f7, 0.0, 18);
+    keybedUnderglowLight.position.set(0, -0.32, STRIKE_Z + 3.4);
+    scene.add(keybedUnderglowLight);
+    keybedUnderglowLightRef.current = keybedUnderglowLight;
+
     // Ground High-Gloss Lacquered Obsidian Mirror Runway Plane
     const bedGeo = new THREE.PlaneGeometry(94, 140);
     const bedMat = new THREE.MeshStandardMaterial({
@@ -258,6 +292,34 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
     bedMesh.rotation.x = -Math.PI / 2;
     bedMesh.position.set(0, -0.62, -35);
     scene.add(bedMesh);
+
+    // Keybed Underglow Diffuse Floor Reflector Strip (Beneath Keys)
+    const underglowGeo = new THREE.PlaneGeometry(56.8, 6.4);
+    const underglowMat = new THREE.MeshBasicMaterial({
+      color: 0xa855f7,
+      transparent: true,
+      opacity: 0.0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const underglowMesh = new THREE.Mesh(underglowGeo, underglowMat);
+    underglowMesh.rotation.x = -Math.PI / 2;
+    underglowMesh.position.set(0, -0.42, STRIKE_Z + 3.4);
+    scene.add(underglowMesh);
+    keybedUnderglowMeshRef.current = underglowMesh;
+
+    // Keybed Front Gap Aperture Glow Ribbon (Between keys and front stretcher rail)
+    const apertureGeo = new THREE.BoxGeometry(56.8, 0.08, 0.14);
+    const apertureMat = new THREE.MeshBasicMaterial({
+      color: 0xa855f7,
+      transparent: true,
+      opacity: 0.0,
+      blending: THREE.AdditiveBlending,
+    });
+    const apertureMesh = new THREE.Mesh(apertureGeo, apertureMat);
+    apertureMesh.position.set(0, -0.16, STRIKE_Z + 6.8);
+    scene.add(apertureMesh);
+    keybedApertureMeshRef.current = apertureMesh;
 
     // Cosmic Starfield & Nebula Dust Cloud (850 twinkling stars)
     const starCount = 850;
@@ -272,17 +334,14 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
 
       const tint = Math.random();
       if (tint < 0.45) {
-        // Violet star
         starColors[i * 3] = 0.8;
         starColors[i * 3 + 1] = 0.6;
         starColors[i * 3 + 2] = 1.0;
       } else if (tint < 0.75) {
-        // Warm gold star
         starColors[i * 3] = 1.0;
         starColors[i * 3 + 1] = 0.82;
         starColors[i * 3 + 2] = 0.45;
       } else {
-        // Diamond cyan/white star
         starColors[i * 3] = 0.9;
         starColors[i * 3 + 1] = 0.95;
         starColors[i * 3 + 2] = 1.0;
@@ -341,7 +400,7 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
       blending: THREE.AdditiveBlending,
     });
 
-    [24, 36, 48, 60, 72, 84, 96].forEach((midi) => {
+    OCTAVE_PITCHES.forEach((midi) => {
       const laneMesh = new THREE.Mesh(laneGeo, laneMat);
       const posX = getNoteX(midi) - 0.31;
       laneMesh.position.set(posX, 0.02, -37.5);
@@ -409,6 +468,85 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
     const crestMesh = new THREE.Mesh(crestGeo, crestMat);
     crestMesh.position.set(0, 2.8, STRIKE_Z + 0.36);
     scene.add(crestMesh);
+
+    // Octave Marker Brass Plaques (C1 through C7) on Fallboard Base
+    const octaveGroup = new THREE.Group();
+    const octavePlaqueGeo = new THREE.PlaneGeometry(1.25, 0.46);
+    const plaqueTexturesToDispose: THREE.Texture[] = [];
+
+    const createOctaveTexture = (label: string, roman: string, isMiddleC: boolean): THREE.CanvasTexture => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 256;
+      canvas.height = 128;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        // Deep brushed gold brass plate background
+        const grad = ctx.createLinearGradient(0, 0, 256, 128);
+        grad.addColorStop(0, '#1c160c');
+        grad.addColorStop(0.5, '#2e2311');
+        grad.addColorStop(1, '#18120a');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.roundRect(6, 6, 244, 116, 14);
+        ctx.fill();
+
+        // Polished Gold Brass Bevel Border
+        ctx.lineWidth = isMiddleC ? 5 : 3.5;
+        ctx.strokeStyle = isMiddleC ? '#fef08a' : '#d4af37';
+        ctx.stroke();
+
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        // Octave Name (e.g. C4)
+        ctx.font = 'bold 44px "Cinzel", "Times New Roman", serif';
+        ctx.fillStyle = isMiddleC ? '#ffffff' : '#fef08a';
+        ctx.shadowColor = 'rgba(212, 175, 55, 0.75)';
+        ctx.shadowBlur = isMiddleC ? 12 : 6;
+        ctx.fillText(label, 128, isMiddleC ? 46 : 50);
+
+        // Roman Numeral (e.g. IV)
+        ctx.font = 'bold 26px "Cinzel", "Times New Roman", serif';
+        ctx.fillStyle = isMiddleC ? '#fef08a' : '#d4af37';
+        ctx.shadowBlur = 4;
+        ctx.fillText(roman, 128, isMiddleC ? 90 : 92);
+
+        if (isMiddleC) {
+          // Middle C Gold Diamond Jewel Crest
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.moveTo(128, 12);
+          ctx.lineTo(134, 18);
+          ctx.lineTo(128, 24);
+          ctx.lineTo(122, 18);
+          ctx.closePath();
+          ctx.fill();
+        }
+      }
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.anisotropy = 4;
+      plaqueTexturesToDispose.push(tex);
+      return tex;
+    };
+
+    OCTAVE_PITCHES.forEach((pitch) => {
+      const data = getOctaveMarkerData(pitch);
+      if (!data) return;
+      const plaqueTex = createOctaveTexture(data.label, data.roman, data.isMiddleC);
+      const plaqueMat = new THREE.MeshStandardMaterial({
+        map: plaqueTex,
+        roughness: 0.22,
+        metalness: 0.92,
+        emissive: 0x5a3f08,
+        emissiveIntensity: 0.35,
+        transparent: true,
+      });
+      const plaqueMesh = new THREE.Mesh(octavePlaqueGeo, plaqueMat);
+      plaqueMesh.position.set(data.posX, 0.95, STRIKE_Z + 0.36);
+      octaveGroup.add(plaqueMesh);
+      octavePlaquesRef.current.set(pitch, plaqueMesh);
+    });
+    scene.add(octaveGroup);
 
     // Luxury Piano Cheek Blocks (Flanking A0 and C8)
     const cheekGeo = new THREE.BoxGeometry(1.3, 1.5, 7.2);
@@ -495,11 +633,24 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
       keyBaseYRef.current.set(midi, yOffset);
     }
 
-    // Particle Burst System Setup (Sparks & Fireworks)
-    const maxParticles = 900;
+    // Pre-Allocated Particle Pool (Zero GC Churn)
+    const MAX_PARTICLES = 900;
+    const particlePool: PooledParticle[] = [];
+    for (let i = 0; i < MAX_PARTICLES; i++) {
+      particlePool.push({
+        active: false,
+        position: new THREE.Vector3(),
+        velocity: new THREE.Vector3(),
+        color: new THREE.Color(),
+        life: 0,
+        maxLife: 1.0,
+      });
+    }
+    particlePoolRef.current = particlePool;
+
     const particleGeo = new THREE.BufferGeometry();
-    const particlePositions = new Float32Array(maxParticles * 3);
-    const particleColors = new Float32Array(maxParticles * 3);
+    const particlePositions = new Float32Array(MAX_PARTICLES * 3);
+    const particleColors = new Float32Array(MAX_PARTICLES * 3);
 
     particleGeo.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3));
     particleGeo.setAttribute('color', new THREE.BufferAttribute(particleColors, 3));
@@ -516,9 +667,125 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
     scene.add(particlePoints);
     particlePointsRef.current = particlePoints;
 
-    // Shockwave Ring Shared Geometry & Material Template
+    const spawnParticle = (
+      x: number,
+      y: number,
+      z: number,
+      vx: number,
+      vy: number,
+      vz: number,
+      color: THREE.Color,
+      maxLife: number
+    ) => {
+      const pool = particlePoolRef.current;
+      for (let i = 0; i < pool.length; i++) {
+        const p = pool[i];
+        if (!p.active) {
+          p.active = true;
+          p.position.set(x, y, z);
+          p.velocity.set(vx, vy, vz);
+          p.color.copy(color);
+          p.life = 0;
+          p.maxLife = maxLife;
+          return;
+        }
+      }
+    };
+
+    // Pre-Allocated Strike Shockwave Pool (Zero GC Churn)
+    const MAX_SHOCKWAVES = 24;
     const shockwaveGeo = new THREE.RingGeometry(0.25, 0.45, 24);
     shockwaveGeo.rotateX(-Math.PI / 2);
+    const shockwavesPool: PooledShockwave[] = [];
+
+    for (let i = 0; i < MAX_SHOCKWAVES; i++) {
+      const sMat = new THREE.MeshBasicMaterial({
+        color: 0xc084fc,
+        transparent: true,
+        opacity: 0.85,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+      });
+      const sMesh = new THREE.Mesh(shockwaveGeo, sMat);
+      sMesh.visible = false;
+      scene.add(sMesh);
+      shockwavesPool.push({
+        active: false,
+        mesh: sMesh,
+        material: sMat,
+        life: 0,
+        maxLife: 0.38,
+        maxRadius: 2.4,
+      });
+    }
+    shockwavesPoolRef.current = shockwavesPool;
+
+    const spawnShockwave = (x: number, isLeftHand: boolean) => {
+      const pool = shockwavesPoolRef.current;
+      for (let i = 0; i < pool.length; i++) {
+        const s = pool[i];
+        if (!s.active) {
+          s.active = true;
+          s.life = 0;
+          s.mesh.position.set(x, 0.12, STRIKE_Z);
+          s.material.color.setHex(isLeftHand ? 0xc084fc : 0xfde047);
+          s.material.opacity = 0.85;
+          s.mesh.scale.set(0.3, 0.3, 1);
+          s.mesh.visible = true;
+          return;
+        }
+      }
+    };
+
+    // Pre-Allocated Runway Reflective Floor Splash Ripple Pool (Zero GC Churn)
+    const MAX_RIPPLES = 24;
+    const rippleGeo = new THREE.RingGeometry(0.20, 0.40, 32);
+    rippleGeo.rotateX(-Math.PI / 2);
+    const ripplesPool: PooledFloorRipple[] = [];
+
+    for (let i = 0; i < MAX_RIPPLES; i++) {
+      const rMat = new THREE.MeshBasicMaterial({
+        color: 0xc084fc,
+        transparent: true,
+        opacity: 0.75,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      const rMesh = new THREE.Mesh(rippleGeo, rMat);
+      rMesh.visible = false;
+      scene.add(rMesh);
+      ripplesPool.push({
+        active: false,
+        mesh: rMesh,
+        material: rMat,
+        life: 0,
+        maxLife: 0.55,
+        maxRadius: 3.6,
+        initialX: 0,
+        initialZ: 0,
+      });
+    }
+    ripplesPoolRef.current = ripplesPool;
+
+    const spawnFloorRipple = (x: number, isLeftHand: boolean) => {
+      const pool = ripplesPoolRef.current;
+      for (let i = 0; i < pool.length; i++) {
+        const r = pool[i];
+        if (!r.active) {
+          r.active = true;
+          r.life = 0;
+          r.initialX = x;
+          r.initialZ = STRIKE_Z;
+          r.mesh.position.set(x, -0.60, STRIKE_Z);
+          r.material.color.setHex(isLeftHand ? 0xc084fc : 0xfde047);
+          r.material.opacity = 0.75;
+          r.mesh.scale.set(0.3, 0.3, 1);
+          r.mesh.visible = true;
+          return;
+        }
+      }
+    };
 
     // Double-Tap on Canvas Gesture Detection (for instant Immersive Zen Mode toggle)
     let lastTapTime = 0;
@@ -565,27 +832,11 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
         }
         triggerHaptic('light');
 
-        // Immediate visual shockwave on the struck 3D key
+        // Immediate visual shockwave & floor ripple on the struck 3D key
         const posX = getNoteX(keyHit.pitch);
         const isLeft = keyHit.pitch < 60;
-        if (shockwavesRef.current.length < 24) {
-          const sMat = new THREE.MeshBasicMaterial({
-            color: isLeft ? 0xc084fc : 0xfde047,
-            transparent: true,
-            opacity: 0.85,
-            side: THREE.DoubleSide,
-            blending: THREE.AdditiveBlending,
-          });
-          const sMesh = new THREE.Mesh(shockwaveGeo, sMat);
-          sMesh.position.set(posX, 0.12, STRIKE_Z);
-          scene.add(sMesh);
-          shockwavesRef.current.push({
-            mesh: sMesh,
-            life: 0,
-            maxLife: 0.38,
-            maxRadius: 2.2,
-          });
-        }
+        spawnShockwave(posX, isLeft);
+        spawnFloorRipple(posX, isLeft);
         return; // Intercept event: do NOT start camera orbit drag!
       }
 
@@ -611,6 +862,10 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
               onUserPlayKeyRef.current(keyHit.pitch, keyHit.velocity);
             }
             triggerHaptic('light');
+            const posX = getNoteX(keyHit.pitch);
+            const isLeft = keyHit.pitch < 60;
+            spawnShockwave(posX, isLeft);
+            spawnFloorRipple(posX, isLeft);
           }
         } else {
           // Finger slid off keybed
@@ -722,7 +977,7 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
       const activeStrikingPitches: number[] = [];
       const activePitchHands = new Map<number, 'left' | 'right'>();
 
-      // Update Falling Luminous Crystal Notes with Leading Strike Caps
+      // Update Falling Luminous Crystal Notes with Velocity-Sensitive Bloom
       const notesToRender = filteredNotesRef.current;
       notesToRender.forEach((note) => {
         const timeUntilStrike = note.startTime - curTime;
@@ -732,12 +987,15 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
           let group = noteGroupsRef.current.get(note.id);
           const isLeftHand = note.hand === 'left';
           const noteLength = Math.max(0.7, note.duration * NOTE_FALL_SPEED);
+          const vel = typeof note.velocity === 'number' ? note.velocity : 0.75;
+          const isStriking = curTime >= note.startTime && curTime <= note.startTime + note.duration;
+          const bloom = calculateNoteBloom(vel, isStriking);
 
           if (!group) {
             group = new THREE.Group();
             const width = isBlackKey(note.pitch) ? 0.44 : 0.56;
 
-            // 1. Crystal Note Body Mesh
+            // 1. Crystal Note Body Mesh (Refractive Crystal Depth)
             const bodyGeo = new THREE.BoxGeometry(width, 0.38, 1);
             const color = isLeftHand ? 0xa855f7 : 0xf59e0b;
             const emissiveColor = isLeftHand ? 0x9333ea : 0xd97706;
@@ -745,11 +1003,11 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
             const bodyMat = new THREE.MeshStandardMaterial({
               color,
               emissive: emissiveColor,
-              emissiveIntensity: 0.65,
-              roughness: 0.12,
+              emissiveIntensity: bloom.emissiveIntensity,
+              roughness: bloom.roughness,
               metalness: 0.42,
               transparent: true,
-              opacity: 0.94,
+              opacity: bloom.opacity,
             });
 
             const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
@@ -761,7 +1019,7 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
             const capMat = new THREE.MeshBasicMaterial({
               color: 0xffffff,
               transparent: true,
-              opacity: 0.96,
+              opacity: Math.min(1.0, 0.88 + vel * 0.12),
             });
             const capMesh = new THREE.Mesh(capGeo, capMat);
             capMesh.name = 'cap';
@@ -777,71 +1035,75 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
 
           if (bodyMesh) {
             bodyMesh.scale.set(1, 1, noteLength);
+            const bMat = bodyMesh.material as THREE.MeshStandardMaterial;
+            bMat.emissiveIntensity = bloom.emissiveIntensity;
+            bMat.opacity = bloom.opacity;
+            bMat.roughness = bloom.roughness;
           }
           if (capMesh) {
-            // Position cap right at the leading strike face of the note
             capMesh.position.set(0, 0.02, noteLength / 2 - 0.15);
+            const cMat = capMesh.material as THREE.MeshBasicMaterial;
+            cMat.opacity = Math.min(1.0, 0.88 + vel * 0.12);
           }
 
           const posX = getNoteX(note.pitch);
           const posZ = STRIKE_Z - timeUntilStrike * NOTE_FALL_SPEED - noteLength / 2;
           group.position.set(posX, 0.5, posZ);
 
+          // Glowing Trailing Edge Embers & Particle Wakes on Fast/Forte Falling Notes
+          if (timeUntilStrike > 0 && shouldEmitTrailingEmbers(vel, Math.random())) {
+            const trailingZ = posZ - noteLength / 2;
+            const emberColor = isLeftHand ? new THREE.Color(0xd8b4fe) : new THREE.Color(0xfef08a);
+            spawnParticle(
+              posX + (Math.random() - 0.5) * 0.35,
+              0.45,
+              trailingZ,
+              (Math.random() - 0.5) * 1.2,
+              Math.random() * 1.4 + 0.8,
+              -Math.random() * 2.0 - 0.6,
+              emberColor,
+              0.36 + Math.random() * 0.24
+            );
+          }
+
           // Check if actively striking the line
-          const isStriking = curTime >= note.startTime && curTime <= note.startTime + note.duration;
           if (isStriking) {
             activeStrikingPitches.push(note.pitch);
             activePitchHands.set(note.pitch, note.hand);
 
-            if (bodyMesh) {
-              const bMat = bodyMesh.material as THREE.MeshStandardMaterial;
-              bMat.emissiveIntensity = 1.6; // Radiant strike bloom
-            }
-
-            // Cosmic particle burst & shockwaves
+            // Cosmic particle burst, rising embers & floor splash ripples
             if (Math.random() < 0.45) {
               const sparkColor = isLeftHand ? new THREE.Color(0xd8b4fe) : new THREE.Color(0xfef08a);
-              particlesRef.current.push({
-                position: new THREE.Vector3(
-                  posX + (Math.random() - 0.5) * 0.4,
-                  0.6,
-                  STRIKE_Z + (Math.random() - 0.5) * 0.3
-                ),
-                velocity: new THREE.Vector3(
-                  (Math.random() - 0.5) * 5.5,
-                  Math.random() * 7.0 + 3.0,
-                  (Math.random() - 0.5) * 5.5
-                ),
-                color: sparkColor,
-                size: new THREE.Vector2(0.4, 0.4),
-                life: 0,
-                maxLife: 0.48 + Math.random() * 0.32,
-              });
+              spawnParticle(
+                posX + (Math.random() - 0.5) * 0.4,
+                0.6,
+                STRIKE_Z + (Math.random() - 0.5) * 0.3,
+                (Math.random() - 0.5) * 5.5,
+                Math.random() * 7.0 + 3.0,
+                (Math.random() - 0.5) * 5.5,
+                sparkColor,
+                0.48 + Math.random() * 0.32
+              );
+
+              // High-Velocity Strike Trailing Embers arching upward over fallboard mirror
+              if (vel >= 0.75) {
+                spawnParticle(
+                  posX + (Math.random() - 0.5) * 0.3,
+                  0.75,
+                  STRIKE_Z + 0.1,
+                  (Math.random() - 0.5) * 2.4,
+                  Math.random() * 5.2 + 3.8,
+                  Math.random() * 2.0 - 1.0,
+                  sparkColor,
+                  0.44 + Math.random() * 0.3
+                );
+              }
 
               // Spawn Expanding Neon Shockwave Ring on Strike Line
-              if (shockwavesRef.current.length < 24) {
-                const sMat = new THREE.MeshBasicMaterial({
-                  color: isLeftHand ? 0xc084fc : 0xfde047,
-                  transparent: true,
-                  opacity: 0.85,
-                  side: THREE.DoubleSide,
-                  blending: THREE.AdditiveBlending,
-                });
-                const sMesh = new THREE.Mesh(shockwaveGeo, sMat);
-                sMesh.position.set(posX, 0.12, STRIKE_Z);
-                scene.add(sMesh);
-                shockwavesRef.current.push({
-                  mesh: sMesh,
-                  life: 0,
-                  maxLife: 0.38,
-                  maxRadius: 2.4,
-                });
-              }
-            }
-          } else {
-            if (bodyMesh) {
-              const bMat = bodyMesh.material as THREE.MeshStandardMaterial;
-              bMat.emissiveIntensity = 0.65;
+              spawnShockwave(posX, isLeftHand);
+
+              // Spawn Reflective Runway Floor Splash Ripple Ring
+              spawnFloorRipple(posX, isLeftHand);
             }
           }
         } else {
@@ -880,7 +1142,9 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
         }
       });
 
-      // Update 3D Piano Key Depressions, Mechanical Fulcrum Tilting, and Illumination
+      // Update 3D Piano Key Depressions, Mechanical Fulcrum Tilting, and Audio-Reactive Underglow
+      const activeDepressions: { pitch: number; depth: number }[] = [];
+
       keyMeshesRef.current.forEach((keyMesh, midi) => {
         const isDepressed = activeStrikingPitches.includes(midi);
         const baseY = keyBaseYRef.current.get(midi) || 0;
@@ -890,6 +1154,11 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
 
         keyMesh.position.y += (targetY - keyMesh.position.y) * lerpFactor;
         keyMesh.rotation.x += (targetRotX - keyMesh.rotation.x) * lerpFactor;
+
+        const currentDepression = Math.max(0, (baseY - keyMesh.position.y) / 0.35);
+        if (currentDepression > 0.04) {
+          activeDepressions.push({ pitch: midi, depth: currentDepression });
+        }
 
         const mat = keyMesh.material as THREE.MeshStandardMaterial;
         if (isDepressed) {
@@ -935,26 +1204,78 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
         }
       }
 
-      // Update Shockwaves
-      for (let i = shockwavesRef.current.length - 1; i >= 0; i--) {
-        const s = shockwavesRef.current[i];
+      // Audio-Reactive Keybed Underglow Illumination (Gap beneath depressed keys)
+      const underglowMetrics = calculateKeybedUnderglow(activeDepressions);
+      const dominantHandColor = leftStrikes >= rightStrikes ? 0xa855f7 : 0xf59e0b;
+
+      if (keybedUnderglowLightRef.current) {
+        keybedUnderglowLightRef.current.color.setHex(dominantHandColor);
+        keybedUnderglowLightRef.current.position.x +=
+          (underglowMetrics.avgX - keybedUnderglowLightRef.current.position.x) * 0.24;
+        keybedUnderglowLightRef.current.intensity +=
+          (underglowMetrics.intensity - keybedUnderglowLightRef.current.intensity) * 0.22;
+      }
+
+      if (keybedUnderglowMeshRef.current) {
+        const uMat = keybedUnderglowMeshRef.current.material as THREE.MeshBasicMaterial;
+        uMat.color.setHex(dominantHandColor);
+        const targetUnderglowOpacity = Math.min(0.68, underglowMetrics.intensity * 0.16);
+        uMat.opacity += (targetUnderglowOpacity - uMat.opacity) * 0.24;
+      }
+
+      if (keybedApertureMeshRef.current) {
+        const aMat = keybedApertureMeshRef.current.material as THREE.MeshBasicMaterial;
+        aMat.color.setHex(dominantHandColor);
+        const targetApertureOpacity = Math.min(0.85, underglowMetrics.intensity * 0.20);
+        aMat.opacity += (targetApertureOpacity - aMat.opacity) * 0.25;
+      }
+
+      // Octave Marker Brass Plaques Dynamic Luminescence
+      octavePlaquesRef.current.forEach((mesh, pitch) => {
+        const pMat = mesh.material as THREE.MeshStandardMaterial;
+        const isOctaveActive = activeStrikingPitches.includes(pitch);
+        const targetEmissive = isOctaveActive ? 1.25 : 0.35;
+        pMat.emissiveIntensity += (targetEmissive - pMat.emissiveIntensity) * 0.20;
+      });
+
+      // Update Shockwaves from Pre-Allocated Pool
+      const shockwaves = shockwavesPoolRef.current;
+      for (let i = 0; i < shockwaves.length; i++) {
+        const s = shockwaves[i];
+        if (!s.active) continue;
         s.life += 0.016;
         const progress = s.life / s.maxLife;
 
         if (progress >= 1.0) {
-          scene.remove(s.mesh);
-          (s.mesh.material as THREE.Material).dispose();
-          shockwavesRef.current.splice(i, 1);
+          s.active = false;
+          s.mesh.visible = false;
           continue;
         }
 
         const scale = 0.3 + (s.maxRadius - 0.3) * progress;
         s.mesh.scale.set(scale, scale, 1);
-        const mat = s.mesh.material as THREE.MeshBasicMaterial;
-        mat.opacity = (1 - progress) * 0.85;
+        s.material.opacity = (1 - progress) * 0.85;
       }
 
-      // Update Cosmic Particles
+      // Update Runway Reflective Floor Splash Ripples from Pre-Allocated Pool
+      const ripples = ripplesPoolRef.current;
+      for (let i = 0; i < ripples.length; i++) {
+        const r = ripples[i];
+        if (!r.active) continue;
+        r.life += 0.016;
+        if (r.life >= r.maxLife) {
+          r.active = false;
+          r.mesh.visible = false;
+          continue;
+        }
+
+        const wave = calculateRippleWave(r.life, r.maxLife, r.maxRadius);
+        r.mesh.scale.set(wave.radius, wave.radius * 1.35, 1);
+        r.mesh.position.set(r.initialX, -0.60, r.initialZ + wave.zOffset);
+        r.material.opacity = wave.opacity;
+      }
+
+      // Update Cosmic Particles from Pre-Allocated Pool (Zero Allocation Churn)
       const particlePoints = particlePointsRef.current;
       if (particlePoints) {
         const posAttr = particlePoints.geometry.getAttribute('position') as THREE.BufferAttribute;
@@ -964,17 +1285,21 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
 
         const delta = 0.016;
         let activeCount = 0;
+        const pool = particlePoolRef.current;
 
-        for (let i = particlesRef.current.length - 1; i >= 0; i--) {
-          const p = particlesRef.current[i];
+        for (let i = 0; i < pool.length; i++) {
+          const p = pool[i];
+          if (!p.active) continue;
           p.life += delta;
 
           if (p.life >= p.maxLife) {
-            particlesRef.current.splice(i, 1);
+            p.active = false;
             continue;
           }
 
-          p.position.addScaledVector(p.velocity, delta);
+          p.position.x += p.velocity.x * delta;
+          p.position.y += p.velocity.y * delta;
+          p.position.z += p.velocity.z * delta;
           p.velocity.y -= 9.8 * delta;
 
           const idx = activeCount * 3;
@@ -988,7 +1313,7 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
           colArray[idx + 2] = p.color.b * fade;
 
           activeCount++;
-          if (activeCount >= maxParticles) break;
+          if (activeCount >= MAX_PARTICLES) break;
         }
 
         for (let i = activeCount * 3; i < posArray.length; i++) {
@@ -1029,10 +1354,6 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
       const preset = cameraPresetRef.current;
 
       // Aspect-ratio responsive distance so 88 keys span 92-94% of horizontal width across any Android screen
-      const fovRad = (48 * Math.PI) / 180;
-      const tanHalfFov = Math.tan(fovRad / 2);
-      const targetKeyboardSpan = 0.93; // 93% width utilization
-      const requiredDist = 28 / (targetKeyboardSpan * aspect * tanHalfFov);
       const soloCamZ = requiredDist * Math.cos((17 * Math.PI) / 180) + 3.4;
       const soloCamY = requiredDist * Math.sin((17 * Math.PI) / 180) + 2.5;
 
@@ -1106,8 +1427,8 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
     animId = requestAnimationFrame(animate);
 
     const noteGroups = noteGroupsRef.current;
-    const shockwaves = shockwavesRef.current;
     const activePointers = active3DPointersRef.current;
+    const octavePlaques = octavePlaquesRef.current;
     const domElement = renderer.domElement;
 
     return () => {
@@ -1143,13 +1464,34 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
       });
       noteGroups.clear();
 
-      shockwaves.forEach((s) => {
+      // Dispose Shockwaves Pool
+      shockwavesPool.forEach((s) => {
         scene.remove(s.mesh);
-        (s.mesh.material as THREE.Material).dispose();
+        s.material.dispose();
       });
-      shockwaves.length = 0;
-
+      shockwavesPoolRef.current = [];
       shockwaveGeo.dispose();
+
+      // Dispose Floor Ripples Pool
+      ripplesPool.forEach((r) => {
+        scene.remove(r.mesh);
+        r.material.dispose();
+      });
+      ripplesPoolRef.current = [];
+      rippleGeo.dispose();
+
+      // Dispose Octave Plaques
+      octavePlaques.forEach((mesh) => {
+        scene.remove(mesh);
+        if (Array.isArray(mesh.material)) {
+          mesh.material.forEach((m) => m.dispose());
+        } else {
+          mesh.material.dispose();
+        }
+      });
+      octavePlaques.clear();
+      octavePlaqueGeo.dispose();
+      plaqueTexturesToDispose.forEach((tex) => tex.dispose());
 
       if (domElement && domElement.parentNode === container) {
         container.removeChild(domElement);

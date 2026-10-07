@@ -14,6 +14,15 @@ import {
 } from '../utils/scoringSystem';
 import { encodeVarInt, generateMidiBinary } from '../utils/midiWriter';
 import { parseMidiFile } from '../utils/midiParser';
+import {
+  calculateNoteBloom,
+  shouldEmitTrailingEmbers,
+  getOctaveMarkerData,
+  calculateKeybedUnderglow,
+  calculateRippleWave,
+  getNoteX,
+  OCTAVE_PITCHES,
+} from '../utils/visualizer3DMath';
 
 describe('Chord Detection & Musical Theory', () => {
   it('correctly identifies single notes', () => {
@@ -1388,6 +1397,176 @@ describe('3D Grand Concert Engine & Visual Atmosphere (v2.4.0)', () => {
 
     expect(frontBrassZ).toBeGreaterThan(whiteKeyFrontLipZ);
     expect(frontRailZ).toBeGreaterThan(frontBrassZ);
+  });
+});
+
+describe('Audio-Visual Bloom & 3D Visualizer Math (v2.6.0)', () => {
+  describe('Velocity-Sensitive Note Bloom & Crystalline Translucency', () => {
+    it('produces deep translucent crystalline body for pianissimo notes', () => {
+      const ppBloom = calculateNoteBloom(0.25, false);
+      // Resting bloom should be subtle (~0.475)
+      expect(ppBloom.emissiveIntensity).toBeCloseTo(0.475, 2);
+      // Crystalline translucency: lower opacity (~0.81)
+      expect(ppBloom.opacity).toBeCloseTo(0.81, 2);
+      expect(ppBloom.roughness).toBeGreaterThan(0.14);
+      expect(ppBloom.strikeCapIntensity).toBeLessThan(0.75);
+    });
+
+    it('produces radiant luminescence and dense crystal for forte notes', () => {
+      const forteBloom = calculateNoteBloom(0.95, false);
+      // Resting bloom is vibrant (~0.825)
+      expect(forteBloom.emissiveIntensity).toBeCloseTo(0.825, 2);
+      // Dense crystal body: high opacity (~0.95)
+      expect(forteBloom.opacity).toBeCloseTo(0.95, 2);
+      expect(forteBloom.roughness).toBeLessThan(0.12);
+      expect(forteBloom.strikeCapIntensity).toBeGreaterThan(0.90);
+    });
+
+    it('produces blinding white-hot bloom during active strikes scaled by velocity', () => {
+      const ppStrike = calculateNoteBloom(0.30, true);
+      const ffStrike = calculateNoteBloom(1.00, true);
+
+      expect(ppStrike.emissiveIntensity).toBeCloseTo(1.69, 2);
+      expect(ffStrike.emissiveIntensity).toBeCloseTo(2.60, 2);
+      expect(ffStrike.emissiveIntensity).toBeGreaterThan(ppStrike.emissiveIntensity);
+      expect(ffStrike.strikeCapIntensity).toBeCloseTo(1.80, 2);
+      expect(ffStrike.opacity).toBe(0.98);
+    });
+
+    it('handles out-of-range and invalid velocity safely', () => {
+      const negativeVel = calculateNoteBloom(-0.5, false);
+      expect(negativeVel.emissiveIntensity).toBeCloseTo(0.425, 2); // clamped to 0.15
+
+      const overVel = calculateNoteBloom(2.5, false);
+      expect(overVel.emissiveIntensity).toBeCloseTo(0.85, 2); // clamped to 1.0
+
+      const nanVel = calculateNoteBloom(NaN, false);
+      expect(nanVel.emissiveIntensity).toBeCloseTo(0.725, 2); // defaults to 0.75
+    });
+  });
+
+  describe('Trailing Edge Embers & Particle Wakes', () => {
+    it('emits trailing embers for forte velocities when random threshold passes', () => {
+      expect(shouldEmitTrailingEmbers(0.85, 0.10)).toBe(true);
+      expect(shouldEmitTrailingEmbers(0.72, 0.20)).toBe(true);
+    });
+
+    it('does not emit trailing embers for pianissimo or gentle notes', () => {
+      expect(shouldEmitTrailingEmbers(0.50, 0.05)).toBe(false);
+      expect(shouldEmitTrailingEmbers(0.70, 0.10)).toBe(false);
+    });
+
+    it('suppresses trailing embers when random threshold exceeds 0.22', () => {
+      expect(shouldEmitTrailingEmbers(0.95, 0.25)).toBe(false);
+      expect(shouldEmitTrailingEmbers(1.00, 0.80)).toBe(false);
+    });
+  });
+
+  describe('Octave Marker Plaques & Roman Numerals (C1 to C7)', () => {
+    it('correctly maps all 7 C-octave markers with Roman numerals', () => {
+      const expectedMarkers = [
+        { pitch: 24, octave: 1, label: 'C1', roman: 'I', isMiddleC: false },
+        { pitch: 36, octave: 2, label: 'C2', roman: 'II', isMiddleC: false },
+        { pitch: 48, octave: 3, label: 'C3', roman: 'III', isMiddleC: false },
+        { pitch: 60, octave: 4, label: 'C4', roman: 'IV', isMiddleC: true },
+        { pitch: 72, octave: 5, label: 'C5', roman: 'V', isMiddleC: false },
+        { pitch: 84, octave: 6, label: 'C6', roman: 'VI', isMiddleC: false },
+        { pitch: 96, octave: 7, label: 'C7', roman: 'VII', isMiddleC: false },
+      ];
+
+      expect(OCTAVE_PITCHES.length).toBe(7);
+
+      expectedMarkers.forEach((expected) => {
+        const data = getOctaveMarkerData(expected.pitch);
+        expect(data).not.toBeNull();
+        expect(data?.octave).toBe(expected.octave);
+        expect(data?.label).toBe(expected.label);
+        expect(data?.roman).toBe(expected.roman);
+        expect(data?.isMiddleC).toBe(expected.isMiddleC);
+        expect(data?.posX).toBeCloseTo(getNoteX(expected.pitch) - 0.31, 2);
+      });
+    });
+
+    it('returns null for non-C pitches', () => {
+      expect(getOctaveMarkerData(61)).toBeNull(); // C#4
+      expect(getOctaveMarkerData(69)).toBeNull(); // A4
+      expect(getOctaveMarkerData(21)).toBeNull(); // A0
+      expect(getOctaveMarkerData(108)).toBeNull(); // C8
+    });
+  });
+
+  describe('Audio-Reactive Keybed Underglow Illumination', () => {
+    it('returns zero intensity when no keys are depressed', () => {
+      const underglow = calculateKeybedUnderglow([]);
+      expect(underglow.intensity).toBe(0.0);
+      expect(underglow.maxDepression).toBe(0.0);
+      expect(underglow.activeCount).toBe(0);
+      expect(underglow.avgX).toBe(0);
+    });
+
+    it('calculates physical underglow intensity proportional to key strike depth', () => {
+      // Light depression (depth 0.2)
+      const light = calculateKeybedUnderglow([{ pitch: 60, depth: 0.2 }]);
+      expect(light.intensity).toBeCloseTo(0.53, 2);
+      expect(light.maxDepression).toBe(0.2);
+      expect(light.avgX).toBeCloseTo(getNoteX(60), 2);
+
+      // Full key strike (depth 1.0)
+      const full = calculateKeybedUnderglow([{ pitch: 60, depth: 1.0 }]);
+      expect(full.intensity).toBeCloseTo(2.65, 2);
+      expect(full.maxDepression).toBe(1.0);
+    });
+
+    it('accumulates underglow smoothly for multi-note chords and centers avgX', () => {
+      const cMajor = [
+        { pitch: 60, depth: 0.8 }, // C4
+        { pitch: 64, depth: 0.8 }, // E4
+        { pitch: 67, depth: 0.8 }, // G4
+      ];
+      const underglow = calculateKeybedUnderglow(cMajor);
+
+      expect(underglow.activeCount).toBe(3);
+      expect(underglow.maxDepression).toBe(0.8);
+      // 0.8 * 2.2 + 2.4 * 0.45 = 1.76 + 1.08 = 2.84
+      expect(underglow.intensity).toBeCloseTo(2.84, 2);
+
+      const expectedAvgX = (getNoteX(60) + getNoteX(64) + getNoteX(67)) / 3;
+      expect(underglow.avgX).toBeCloseTo(expectedAvgX, 2);
+    });
+
+    it('caps maximum underglow intensity at safe ceiling', () => {
+      const denseCluster = Array.from({ length: 15 }, (_, i) => ({
+        pitch: 48 + i,
+        depth: 1.0,
+      }));
+      const underglow = calculateKeybedUnderglow(denseCluster);
+      expect(underglow.intensity).toBe(4.5);
+    });
+  });
+
+  describe('Reflective Runway Floor Ripple Splash Waves', () => {
+    it('starts with compact radius and peak opacity at life = 0', () => {
+      const initial = calculateRippleWave(0, 0.55, 3.6);
+      expect(initial.radius).toBe(0.3);
+      expect(initial.opacity).toBe(0.75);
+      expect(initial.zOffset).toBe(0);
+    });
+
+    it('expands outward and drifts backwards down the runway over time', () => {
+      const mid = calculateRippleWave(0.275, 0.55, 3.6);
+      // Progress 0.5 -> easeOut = 1 - 0.25 = 0.75
+      // Radius: 0.3 + 3.3 * 0.75 = 2.775
+      expect(mid.radius).toBeCloseTo(2.775, 2);
+      expect(mid.opacity).toBeCloseTo(0.375, 2);
+      expect(mid.zOffset).toBeLessThan(0); // drifted down the runway
+    });
+
+    it('fades to zero opacity and reaches maximum radius at end of life', () => {
+      const finished = calculateRippleWave(0.55, 0.55, 3.6);
+      expect(finished.radius).toBeCloseTo(3.6, 2);
+      expect(finished.opacity).toBe(0);
+      expect(finished.zOffset).toBeCloseTo(-1.8, 2);
+    });
   });
 });
 

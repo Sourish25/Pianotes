@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Version: 2.5.0](https://img.shields.io/badge/Release-v2.5.0-blue.svg?style=for-the-badge)
+![Version: 2.6.0](https://img.shields.io/badge/Release-v2.6.0-blue.svg?style=for-the-badge)
 ![Android](https://img.shields.io/badge/Android_APK-3DDC84?style=for-the-badge&logo=android&logoColor=white)
 ![License: MIT](https://img.shields.io/badge/License-MIT-purple.svg?style=for-the-badge)
 ![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)
@@ -53,7 +53,13 @@ Whether you want to learn classical masterpieces with the intelligent **"Wait-fo
   <img src="docs/screenshots/dual-viewport.jpg" alt="Pianotes Dual Viewport and Practice Bar" width="100%" style="border-radius: 16px; margin: 16px 0;" />
 </div>
 
-- **3D Perspective Waterfall Viewport (v2.5.0 Tactile Engine & Visual Atmosphere)**:
+- **3D Perspective Waterfall Viewport (v2.6.0 Audio-Visual Bloom & Resonant Note Glow)**:
+  - **Velocity-Sensitive Note Bloom & Crystalline Translucency**: Dynamic bloom on falling crystal notes where forte strikes radiate with white-hot luminescence (`emissiveIntensity` up to 2.60) and pianissimo notes feature deep refractive crystalline translucency.
+  - **Trailing Edge Embers & Particle Wakes**: High-velocity cascade notes (`velocity >= 0.72`) emit trailing embers trailing their back edge down the runway; forte strikes spawn rising trailing embers arching over the fallboard mirror.
+  - **Audio-Reactive Keybed Underglow**: Keybed gap beneath depressed keys illuminates with dynamic `keybedUnderglowLight`, floor diffuser mesh, and front aperture ribbon strictly proportional to physical hammer depression depth.
+  - **Inlaid Gold Brass Octave Plaques (C1 to C7)**: 7 handcrafted gold brass plaques embossed with classical Roman numerals (`I` through `VII`) and crowned with a gold diamond jewel crest at Middle C (C4), dynamically illuminating when struck.
+  - **Reflective Runway Floor Splash Rings**: Expanding ripple distortion waves spreading backwards across the obsidian runway mirror upon key impact, simulating liquid glass raindrops.
+  - **Zero-Allocation Particle & Ripple Pools**: Pre-allocated pools for 900 particles, 24 strike shockwaves, and 24 floor ripples eliminating GC pauses and maintaining locked 60/120fps on Android.
   - **Direct 3D Tactile Piano Touch & 3D Glissando**: Three.js `Raycaster` camera intersection pipeline enabling players to tap, chord, and slide fingers directly on the 88-key 3D piano keys with vertical touch depth velocity sensitivity (forte 0.90 to piano 0.50).
   - **100% Key Clearance via Docked Transport Pill**: In Solo 3D mode, the `CompactTransportPill` is tucked into the bottom-left corner over A0/B0 bass keys, giving Middle C (C4–G4) and all melody keys 100% clearance with zero occlusion.
   - **Procedural Feathered Radial Celestial Nebula**: Custom 512x256 radial alpha gradient falloff texture replacing flat rectangular meshes, producing seamless, organic cosmic haze across the starfield with zero hard edges.

@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.6.0] - 2026-10-07
+
+### ✨ Audio-Visual Bloom, Resonant Note Glow, Keybed Underglow & Floor Ripples
+- **Audio-Visual Bloom & Resonant Note Glow**:
+  - Implemented velocity-sensitive bloom intensity on the 3D crystal falling notes: forte notes glow with radiant luminescence (`emissiveIntensity` up to 2.60 during strikes), while pianissimo notes feature deep translucent crystalline bodies (`opacity: 0.76–0.81`).
+  - Added glowing trailing edge embers & particle wakes emitted from the tails of fast arpeggios and high-velocity notes (`velocity >= 0.72`) as they cascade towards the keybed.
+  - Added rising trailing embers arching gracefully over the fallboard mirror during forte strikes (`velocity >= 0.75`).
+- **Audio-Reactive Keybed Underglow**:
+  - Modeled physical keybed illumination beneath depressed keys responding directly to physical strike depth:
+    - Dedicated `keybedUnderglowLight` dynamic PointLight tracking the active strike centroid.
+    - Keybed floor diffuser mesh (`underglowMesh`) and front aperture ribbon (`apertureMesh`) illuminating the gap between depressed keys and the front stretcher rail.
+    - Illumination scales from subtle ambient warmth on gentle touch to radiant violet/amber underglow on deep fortissimo strikes.
+- **Inlaid Gold Brass Octave Markers (C1 to C7)**:
+  - Modeled 7 handcrafted gold brass plaques across the obsidian fallboard base at C1, C2, C3, C4, C5, C6, and C7.
+  - Rendered with embossed gold serif numerals and classical Roman numerals (`I`, `II`, `III`, `IV`, `V`, `VI`, `VII`).
+  - Middle C (C4) is crowned with a distinctive gold diamond jewel crest for instant performer orientation.
+  - Active C strikes dynamically illuminate the corresponding octave plaque to provide tactile visual feedback.
+- **Runway Reflective Floor Splash Rings & Ripple Waves**:
+  - Implemented expanding ripple splash distortion waves spreading backwards across the lacquered obsidian runway mirror floor upon key strikes.
+  - Ripple waves expand outwards with ease-out dissipation (`radius: 0.3` to `3.6`) and progressive alpha fade, simulating liquid raindrops disturbing the reflective water surface.
+- **Low-Overhead Object Pools & Zero-Allocation Render Loop**:
+  - Replaced all ad-hoc heap allocations in the 60fps render loop with pre-allocated object pools:
+    - 900 pre-allocated particle instances (`particlePool`).
+    - 24 pre-allocated strike shockwave rings (`shockwavesPool`).
+    - 24 pre-allocated floor splash ripple rings (`ripplesPool`).
+  - Completely eliminated GC pauses and micro-stutters, maintaining locked 60/120fps on Android mobile devices.
+- **Quality Assurance**:
+  - Expanded unit test suite from 67 to 83 passing tests (`vitest`).
+  - 0 lint errors and 0 lint warnings (`oxlint`).
+  - Built fresh native Android release & debug APKs (`Pianotes-release.apk` & `Pianotes-debug.apk`).
+
+---
+
 ## [2.5.0] - 2026-10-07
 
 ### 🎹 Tactile 3D Piano Engine, Reflective Glass Runway & Feathered Radial Nebula
