@@ -250,6 +250,8 @@ export const StudioDrawer: React.FC<StudioDrawerProps> = ({
           </div>
           <button
             onClick={onClose}
+            title="Close Studio panel"
+            aria-label="Close Studio panel"
             className="p-1.5 rounded-full text-zinc-400 hover:text-white bg-white/5 border border-white/10 hover:bg-white/10"
           >
             <X className="w-4 h-4" />

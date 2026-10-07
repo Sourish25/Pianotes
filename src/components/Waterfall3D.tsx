@@ -139,13 +139,15 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
     sceneRef.current = scene;
 
     const camera = new THREE.PerspectiveCamera(48, width / height, 0.1, 1000);
-    const initialCamY = isDualViewRef.current ? 22 : 14.5;
-    const initialCamZ = isDualViewRef.current ? 28 : 21.5;
+    const aspect = width / height;
+    const isTabletRatio = aspect < 1.85;
+    const initialCamY = isDualViewRef.current ? (isTabletRatio ? 15 : 18) : (isTabletRatio ? 11 : 12.5);
+    const initialCamZ = isDualViewRef.current ? (isTabletRatio ? 24 : 26) : (isTabletRatio ? 22.5 : 24);
     camera.position.set(0, initialCamY, initialCamZ);
     if (isDualViewRef.current) {
-      camera.lookAt(0, -1, -12);
+      camera.lookAt(0, isTabletRatio ? 2.5 : 2.0, -8);
     } else {
-      camera.lookAt(0, 1.0, -6);
+      camera.lookAt(0, isTabletRatio ? 3.8 : 3.0, -6);
     }
     cameraRef.current = camera;
 
@@ -525,22 +527,32 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
           ? activeStrikingPitches.reduce((acc, p) => acc + getNoteX(p), 0) / activeStrikingPitches.length
           : 0;
 
+      // Dynamic aspect-ratio compensation: tablets (aspect < 1.85) have taller viewports.
+      // Adjusting lookAtY and camera height anchors the 3D keys closer to the bottom border.
+      const aspect = camera.aspect;
+      const isTabletRatio = aspect < 1.85;
+
       // Freeze dynamic camera sway in Dual View to keep 3D notes permanently aligned with 2D piano keys below
       const targetCamX = isDualViewRef.current
         ? 0
         : avgX * 0.2 + cameraAngleRef.current.yaw * 16;
       const targetCamY = isDualViewRef.current
-        ? (22 + cameraAngleRef.current.pitch * 14) * cameraAngleRef.current.zoom
-        : (14.5 + cameraAngleRef.current.pitch * 12) * cameraAngleRef.current.zoom;
-      const targetCamZ = (isDualViewRef.current ? 28 : 21.5) * cameraAngleRef.current.zoom;
+        ? ((isTabletRatio ? 15 : 18) + cameraAngleRef.current.pitch * 14) * cameraAngleRef.current.zoom
+        : ((isTabletRatio ? 11 : 12.5) + cameraAngleRef.current.pitch * 12) * cameraAngleRef.current.zoom;
+      const targetCamZ = (isDualViewRef.current
+        ? (isTabletRatio ? 24 : 26)
+        : (isTabletRatio ? 22.5 : 24)
+      ) * cameraAngleRef.current.zoom;
 
       camera.position.x += (targetCamX - camera.position.x) * (isDualViewRef.current ? 0.2 : 0.08);
       camera.position.y += (targetCamY - camera.position.y) * 0.08;
       camera.position.z += (targetCamZ - camera.position.z) * 0.08;
       if (isDualViewRef.current) {
-        camera.lookAt(0, -1, -12);
+        const dualLookAtY = isTabletRatio ? 2.5 : 2.0;
+        camera.lookAt(0, dualLookAtY, -8);
       } else {
-        camera.lookAt(targetCamX * 0.25, 1.0, -6);
+        const soloLookAtY = isTabletRatio ? 3.8 : 3.0;
+        camera.lookAt(targetCamX * 0.25, soloLookAtY, -6);
       }
 
       // Pulse strike line neon glow

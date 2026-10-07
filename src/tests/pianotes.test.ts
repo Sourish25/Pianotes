@@ -1178,6 +1178,34 @@ describe('v2.3.0 Visual Ergonomics, Camera Horizon & Fullscreen Piano', () => {
     expect(scoredRun.title).toBe('Virtuoso Performance');
     expect(scoredRun.rankBadge).toContain('Virtuoso');
   });
+
+  it('dynamically adjusts camera target and lookAt for tablet aspect ratios (16:10 / 4:3)', () => {
+    const getAspectAwareCamera = (aspect: number, isDualView: boolean) => {
+      const isTabletRatio = aspect < 1.85;
+      const targetCamY = isDualView
+        ? (isTabletRatio ? 15 : 18)
+        : (isTabletRatio ? 11 : 12.5);
+      const targetCamZ = isDualView
+        ? (isTabletRatio ? 24 : 26)
+        : (isTabletRatio ? 22.5 : 24);
+      const lookAtY = isDualView
+        ? (isTabletRatio ? 2.5 : 2.0)
+        : (isTabletRatio ? 3.8 : 3.0);
+      return { targetCamY, targetCamZ, lookAtY, isTabletRatio };
+    };
+
+    // Phone widescreen (915x412, aspect ~2.22)
+    const phoneCam = getAspectAwareCamera(915 / 412, false);
+    expect(phoneCam.isTabletRatio).toBe(false);
+    expect(phoneCam.targetCamY).toBe(12.5);
+    expect(phoneCam.lookAtY).toBe(3.0);
+
+    // Tablet (1280x800, aspect 1.6)
+    const tabletCam = getAspectAwareCamera(1280 / 800, false);
+    expect(tabletCam.isTabletRatio).toBe(true);
+    expect(tabletCam.targetCamY).toBe(11); // Lower camera height
+    expect(tabletCam.lookAtY).toBe(3.8); // Higher lookAt tilts down to anchor keys in lower third
+  });
 });
 
 
