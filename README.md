@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Version: 2.1.0](https://img.shields.io/badge/Release-v2.1.0-blue.svg?style=for-the-badge)
+![Version: 2.2.0](https://img.shields.io/badge/Release-v2.2.0-blue.svg?style=for-the-badge)
 ![Android](https://img.shields.io/badge/Android_APK-3DDC84?style=for-the-badge&logo=android&logoColor=white)
 ![License: MIT](https://img.shields.io/badge/License-MIT-purple.svg?style=for-the-badge)
 ![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)
@@ -159,17 +159,26 @@ Pianotes features an extensive Web Audio API synthesizer library with **9 distin
 ---
 
 ### 8. Interactive Practice, "Wait-for-Me" Mode & Web MIDI
+- **Polyphonic Voice Stealing & Audio Engine Hardening (v2.2.0)**:
+  - Enforces strict 32-voice concurrency limit (`MAX_VOICES = 32`) with intelligent voice stealing prioritizing older sustained notes over actively held notes.
+  - Smooth 50ms exponential release fades eliminate audio thread overload, buffer crackle, and pops on mobile Android chipsets during heavy sustain pedal usage.
+- **Vertical Touch Velocity Sensitivity (v2.2.0)**:
+  - Authentic acoustic piano response on 2D keys: tapping high near the black key root triggers soft piano (`0.45` velocity), while tapping low near the front lip triggers loud forte (`0.90` velocity).
+- **Pre-Roll Count-In Engine & Visual HUD (v2.2.0)**:
+  - Interactive 1-bar count-in with tempo-aware metronome clicks (accented beat 1) and glass countdown HUD overlay before playback starts or loops restart.
+- **Real-time Acoustic Microphone Pitch Detection & Overtone Suppression (v2.2.0)**:
+  - 2400Hz acoustic low-pass filtering and subharmonic overtone inspection (`suppressOvertones`) suppressing 2nd/3rd harmonic false positives down to fundamental piano pitches.
+  - Live floating Acoustic Pitch Feedback HUD badge (`"Heard: C4 / 261.6 Hz"`) giving immediate visual verification of notes struck on physical acoustic pianos.
+- **Canvas Double-Tap Gesture (v2.2.0)**:
+  - Double-tap anywhere on the 3D Waterfall canvas to toggle Immersive Zen Mode instantly with haptic feedback.
 - **Intelligent "Wait-for-Me" Mode**: When enabled, song playback automatically pauses right at the strike line whenever a note arrives until you strike the correct piano key, with persistent note satisfaction tracking preventing time deadlocks.
 - **Hardware Web MIDI API Integration**:
   - Connect your physical digital piano (USB / Bluetooth) with zero configuration.
   - Automatically receives live `noteon`, `noteoff`, and sustain pedal `CC 64` messages directly into the audio and practice engines.
   - Live hardware device indicator badge in the top navigation bar.
-- **Real-time Acoustic Microphone Pitch Detection**:
-  - Uses the Web Audio API with autocorrelation frequency extraction.
-  - Play an actual acoustic piano in your room, and Pianotes hears the note IRL and presses the corresponding key on screen with live VU metering.
 - **Hand Isolation Practice**:
   - Isolate Left Hand only (Violet), Right Hand only (Amber), or practice Both Hands simultaneously.
-- **A-B Loop Practice**: Set loop start and loop end markers to practice difficult passages repetitively.
+- **A-B Loop Practice**: Set loop start and loop end markers to practice difficult passages repetitively with automated pre-roll count-in.
 - **Variable Tempo Scaler**: Slow down complex pieces to `0.25x` or speed up to `1.5x` without pitch alteration.
 
 ---

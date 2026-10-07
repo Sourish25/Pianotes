@@ -12,6 +12,7 @@ import type {
 import { SAMPLE_SONGS } from './data/songs';
 import { pianoEngine } from './audio/PianoEngine';
 import { metronomeEngine } from './audio/MetronomeEngine';
+import { countInEngine } from './audio/CountInEngine';
 import { micListener } from './audio/MicrophoneListener';
 import { webMidiManager } from './audio/WebMidiManager';
 import { ScoreKeeper } from './utils/scoringSystem';
@@ -35,6 +36,8 @@ import {
   X,
   Maximize2,
   Minimize2,
+  Timer,
+  Mic,
 } from 'lucide-react';
 
 export const App: React.FC = () => {
@@ -92,6 +95,20 @@ export const App: React.FC = () => {
   // Microphone Listener State
   const [isMicActive, setIsMicActive] = useState<boolean>(false);
   const [micLevel, setMicLevel] = useState<number>(0);
+  const [lastHeardPitch, setLastHeardPitch] = useState<{
+    midi: number;
+    noteName: string;
+    frequency: number;
+    timestamp: number;
+  } | null>(null);
+
+  // Pre-Roll Count-In Engine
+  const [isCountInEnabled, setIsCountInEnabled] = useState<boolean>(true);
+  const isCountInEnabledRef = useRef<boolean>(true);
+  useEffect(() => {
+    isCountInEnabledRef.current = isCountInEnabled;
+  }, [isCountInEnabled]);
+  const [countInState, setCountInState] = useState<{ active: boolean; beat: number; total: number } | null>(null);
 
   // Metronome Active State
   const [isMetronomeActive, setIsMetronomeActive] = useState<boolean>(() => metronomeEngine.getIsRunning());
@@ -180,6 +197,16 @@ export const App: React.FC = () => {
       return () => clearTimeout(timer);
     }
   }, [latestStrike]);
+
+  // Fade out microphone heard pitch badge
+  useEffect(() => {
+    if (lastHeardPitch) {
+      const timer = setTimeout(() => {
+        setLastHeardPitch((prev) => (prev?.timestamp === lastHeardPitch.timestamp ? null : prev));
+      }, 3500);
+      return () => clearTimeout(timer);
+    }
+  }, [lastHeardPitch]);
 
   // Stop all active synthesizer voices cleanly
   const stopAudioNotes = useCallback(() => {
@@ -363,9 +390,16 @@ export const App: React.FC = () => {
       micListener.stop();
       setIsMicActive(false);
       setMicLevel(0);
+      setLastHeardPitch(null);
     } else {
       const started = await micListener.start(
-        (midi) => {
+        (midi, noteName, freq) => {
+          setLastHeardPitch({
+            midi,
+            noteName,
+            frequency: freq,
+            timestamp: Date.now(),
+          });
           pianoEngine.playNote(midi, 0.8);
           handleUserPlayKey(midi, true);
         },
@@ -399,6 +433,57 @@ export const App: React.FC = () => {
     );
   }, [handleUserPlayKey, handleUserReleaseKey]);
 
+  // Pre-Roll Count-In & Playback Controls
+  const handleTogglePlay = useCallback(() => {
+    if (isPlayingRef.current || countInState?.active) {
+      countInEngine.cancel();
+      setCountInState(null);
+      setIsPlaying(false);
+    } else {
+      if (isCountInEnabledRef.current) {
+        setCountInState({ active: true, beat: 1, total: 4 });
+        countInEngine.start({
+          bpm: currentSong.bpm || 120,
+          beats: 4,
+          onTick: (beat, total) => {
+            setCountInState({ active: true, beat, total });
+          },
+          onComplete: () => {
+            setCountInState(null);
+            setIsPlaying(true);
+          },
+        });
+      } else {
+        setIsPlaying(true);
+      }
+    }
+  }, [countInState, currentSong.bpm]);
+
+  const triggerLoopCountIn = useCallback(
+    (restartPoint: number) => {
+      setIsPlaying(false);
+      setCurrentTime(restartPoint);
+      stopAudioNotes();
+      if (isCountInEnabledRef.current) {
+        setCountInState({ active: true, beat: 1, total: 4 });
+        countInEngine.start({
+          bpm: currentSong.bpm || 120,
+          beats: 4,
+          onTick: (beat, total) => {
+            setCountInState({ active: true, beat, total });
+          },
+          onComplete: () => {
+            setCountInState(null);
+            setIsPlaying(true);
+          },
+        });
+      } else {
+        setIsPlaying(true);
+      }
+    },
+    [currentSong.bpm, stopAudioNotes]
+  );
+
   // Main Playback Clock Loop
   useEffect(() => {
     if (!isPlaying) {
@@ -420,10 +505,17 @@ export const App: React.FC = () => {
         // Check A-B Loop boundaries
         if (loopA !== null && loopB !== null && loopB > loopA) {
           if (nextTime >= loopB) {
-            nextTime = loopA;
-            stopAudioNotes();
+            if (isCountInEnabledRef.current) {
+              triggerLoopCountIn(loopA);
+              return loopA;
+            } else {
+              nextTime = loopA;
+              stopAudioNotes();
+            }
           }
         } else if (nextTime >= currentSong.duration) {
+          countInEngine.cancel();
+          setCountInState(null);
           setIsPlaying(false);
           stopAudioNotes();
           // Finalize all remaining un-scored notes as MISS so final accuracy covers the full piece
@@ -552,10 +644,12 @@ export const App: React.FC = () => {
         cancelAnimationFrame(animFrameRef.current);
       }
     };
-  }, [isPlaying, tempo, waitForMe, activeHand, currentSong, loopA, loopB, stopAudioNotes]);
+  }, [isPlaying, tempo, waitForMe, activeHand, currentSong, loopA, loopB, stopAudioNotes, triggerLoopCountIn]);
 
   // Restart Song
   const handleRestart = useCallback((overrideTotalNotes?: number) => {
+    countInEngine.cancel();
+    setCountInState(null);
     setCurrentTime(0);
     satisfiedNoteIdsRef.current.clear();
     scoredNoteIdsRef.current.clear();
@@ -568,6 +662,8 @@ export const App: React.FC = () => {
 
   // Seek Timeline
   const handleSeek = (seconds: number) => {
+    countInEngine.cancel();
+    setCountInState(null);
     setCurrentTime(seconds);
     stopAllVoices();
     satisfiedNoteIdsRef.current.clear();
@@ -647,6 +743,11 @@ export const App: React.FC = () => {
               : 'opacity-0 pointer-events-none -translate-y-full'
             : 'opacity-100 translate-y-0'
         }`}
+        style={{
+          paddingLeft: 'max(16px, env(safe-area-inset-left, 16px))',
+          paddingRight: 'max(16px, env(safe-area-inset-right, 16px))',
+          paddingTop: 'max(10px, env(safe-area-inset-top, 10px))',
+        }}
       >
         {/* Brand / Logo */}
         <div className="flex items-center gap-3">
@@ -852,6 +953,7 @@ export const App: React.FC = () => {
               activeHand={activeHand}
               userPlayedKeys={userPlayedPitches}
               isDualView={viewportMode === 'dual'}
+              onToggleZenMode={() => setIsZenMode((prev) => !prev)}
             />
           </div>
         )}
@@ -865,11 +967,75 @@ export const App: React.FC = () => {
           >
             <PlayablePiano2D
               activeKeys={activeNotes}
-              onUserPlayKey={handleUserPlayKey}
+              onUserPlayKey={(pitch, vel) => handleUserPlayKey(pitch, false, vel)}
               onUserReleaseKey={handleUserReleaseKey}
               sustainPedal={sustainPedal}
               onToggleSustain={handleToggleSustain}
             />
+          </div>
+        )}
+
+        {/* Live Acoustic Microphone Pitch Feedback HUD Badge */}
+        {isMicActive && (
+          <div
+            className={`absolute ${
+              isZenMode ? 'top-4' : 'top-16'
+            } right-4 sm:right-6 z-40 pointer-events-none transition-all duration-300 animate-in fade-in`}
+          >
+            <div className="flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-rose-950/75 border border-rose-500/40 backdrop-blur-xl shadow-[0_0_20px_rgba(244,63,94,0.35)] text-rose-200">
+              <div className="relative flex items-center justify-center">
+                <Mic className="w-3.5 h-3.5 text-rose-400 animate-pulse" />
+                <span className="absolute -inset-1 rounded-full bg-rose-500/20 animate-ping" />
+              </div>
+              <div className="text-xs font-medium">
+                {lastHeardPitch ? (
+                  <span>
+                    Heard: <strong className="font-mono text-white font-bold">{lastHeardPitch.noteName}</strong> /{' '}
+                    <span className="font-mono text-rose-300">{lastHeardPitch.frequency.toFixed(1)} Hz</span>
+                  </span>
+                ) : (
+                  <span className="text-rose-300/80">Listening for Piano...</span>
+                )}
+              </div>
+              {micLevel > 0.04 && (
+                <div
+                  className="w-1.5 h-3 bg-rose-400 rounded-full transition-all"
+                  style={{ opacity: Math.min(1, micLevel * 2.5) }}
+                />
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Pre-Roll Count-In Interactive HUD Overlay */}
+        {countInState?.active && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center pointer-events-none animate-in fade-in duration-150">
+            <div className="flex flex-col items-center justify-center px-10 py-7 rounded-3xl bg-[#070810]/85 border border-white/20 backdrop-blur-2xl shadow-[0_0_60px_rgba(168,85,247,0.45)]">
+              <div className="flex items-center gap-2 mb-2 text-purple-300 font-mono text-xs uppercase tracking-widest">
+                <Timer className="w-4 h-4 animate-spin text-purple-400" />
+                <span>PRE-ROLL COUNT-IN</span>
+              </div>
+              <div
+                key={countInState.beat}
+                className="text-7xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white via-purple-100 to-purple-400 drop-shadow-[0_0_35px_rgba(168,85,247,0.85)] animate-in zoom-in-75 duration-150"
+              >
+                {countInState.beat}
+              </div>
+              <div className="flex items-center gap-2.5 mt-4">
+                {Array.from({ length: countInState.total }).map((_, idx) => (
+                  <div
+                    key={idx}
+                    className={`h-2.5 rounded-full transition-all duration-200 ${
+                      idx + 1 === countInState.beat
+                        ? 'w-7 bg-purple-400 shadow-[0_0_14px_rgba(168,85,247,0.9)]'
+                        : idx + 1 < countInState.beat
+                        ? 'w-2.5 bg-purple-400/50'
+                        : 'w-2.5 bg-white/15'
+                    }`}
+                  />
+                ))}
+              </div>
+            </div>
           </div>
         )}
       </main>
@@ -877,7 +1043,7 @@ export const App: React.FC = () => {
       {/* Floating Bottom Practice & Transport Bar */}
       <PracticeBar
         isPlaying={isPlaying}
-        onTogglePlay={() => setIsPlaying(!isPlaying)}
+        onTogglePlay={handleTogglePlay}
         onRestart={handleRestart}
         onSeek={handleSeek}
         currentTime={currentTime}
@@ -916,6 +1082,9 @@ export const App: React.FC = () => {
         onOpenVirtuosoSummary={() => setShowVirtuosoSummary(true)}
         isZenMode={isZenMode}
         onToggleZenMode={() => setIsZenMode(!isZenMode)}
+        isCountInEnabled={isCountInEnabled}
+        onToggleCountIn={() => setIsCountInEnabled(!isCountInEnabled)}
+        isCountingIn={countInState?.active ?? false}
       />
 
       {/* Ingestion & Song Library Drawer */}
@@ -934,6 +1103,8 @@ export const App: React.FC = () => {
         onSelectInstrument={setInstrument}
         currentSongBpm={currentSong.bpm}
         initialTab={studioInitialTab}
+        isCountInEnabled={isCountInEnabled}
+        onToggleCountIn={() => setIsCountInEnabled(!isCountInEnabled)}
       />
 
       {/* Virtuoso Performance Summary Modal */}
@@ -945,7 +1116,7 @@ export const App: React.FC = () => {
         composer={currentSong.composer}
         onReplay={() => {
           handleRestart();
-          setIsPlaying(true);
+          handleTogglePlay();
         }}
         onOpenLibrary={() => setIsIngestionOpen(true)}
         onExportMidi={() => downloadMidiFile(currentSong.notes, currentSong.bpm, currentSong.title)}

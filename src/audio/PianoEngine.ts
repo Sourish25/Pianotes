@@ -30,7 +30,11 @@ export class PianoAudioEngine {
   private currentInstrument: InstrumentType = 'concert-grand';
   private concertPitchA4: number = 440;
   private sustainPedal = false;
-  private activeVoices: Map<number, { stop: () => void; isSustained: boolean }> = new Map();
+  private readonly MAX_VOICES = 32;
+  private activeVoices: Map<
+    number,
+    { stop: (fadeDuration?: number) => void; isSustained: boolean; startTime: number }
+  > = new Map();
 
   private constructor() {}
 
@@ -272,9 +276,15 @@ export class PianoAudioEngine {
       this.ctx.resume();
     }
 
+    // Re-triggering existing pitch: release cleanly first
     if (this.activeVoices.has(midi)) {
-      this.activeVoices.get(midi)?.stop();
+      this.activeVoices.get(midi)?.stop(0.05);
       this.activeVoices.delete(midi);
+    }
+
+    // Polyphonic Voice Stealing: enforce max 32 active voices
+    while (this.activeVoices.size >= this.MAX_VOICES) {
+      this.stealVoice();
     }
 
     const freq = this.midiToFrequency(midi);
@@ -291,7 +301,7 @@ export class PianoAudioEngine {
       gainNode.connect(this.masterGain);
     }
 
-    let stopVoice: () => void = () => {};
+    let stopVoice: (fadeDuration?: number) => void = () => {};
 
     switch (this.currentInstrument) {
       case 'concert-grand':
@@ -326,6 +336,7 @@ export class PianoAudioEngine {
     this.activeVoices.set(midi, {
       stop: stopVoice,
       isSustained: false,
+      startTime: now,
     });
   }
 
@@ -339,6 +350,55 @@ export class PianoAudioEngine {
       voice.stop();
       this.activeVoices.delete(midi);
     }
+  }
+
+  /**
+   * Polyphonic Voice Stealing:
+   * First steals the oldest sustained voice (physical key already released, held by sustain pedal).
+   * If no sustained voices exist, steals the oldest actively held voice.
+   * Uses a smooth exponential fade (50ms) to eliminate audio graph overload, crackling, and pops.
+   */
+  private stealVoice() {
+    let victimPitch: number | null = null;
+    let oldestTime = Infinity;
+
+    // 1. Prioritize stealing sustained voices
+    for (const [pitch, voice] of this.activeVoices.entries()) {
+      if (voice.isSustained && voice.startTime < oldestTime) {
+        oldestTime = voice.startTime;
+        victimPitch = pitch;
+      }
+    }
+
+    // 2. If no sustained voices, steal oldest active voice
+    if (victimPitch === null) {
+      for (const [pitch, voice] of this.activeVoices.entries()) {
+        if (voice.startTime < oldestTime) {
+          oldestTime = voice.startTime;
+          victimPitch = pitch;
+        }
+      }
+    }
+
+    if (victimPitch !== null) {
+      const victim = this.activeVoices.get(victimPitch);
+      if (victim) {
+        victim.stop(0.05);
+        this.activeVoices.delete(victimPitch);
+      }
+    }
+  }
+
+  public getActiveVoiceCount(): number {
+    return this.activeVoices.size;
+  }
+
+  public getMaxVoices(): number {
+    return this.MAX_VOICES;
+  }
+
+  public getActivePitches(): number[] {
+    return Array.from(this.activeVoices.keys());
   }
 
   /* --- Instrument Synthesizers --- */
@@ -388,12 +448,12 @@ export class PianoAudioEngine {
       oscs.push(osc);
     });
 
-    return () => {
+    return (fadeDuration: number = 0.25) => {
       if (!this.ctx) return;
       const releaseTime = this.ctx.currentTime;
       gainNode.gain.cancelScheduledValues(releaseTime);
       gainNode.gain.setValueAtTime(Math.max(0.0001, gainNode.gain.value), releaseTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.0001, releaseTime + 0.25);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, releaseTime + Math.max(0.02, fadeDuration));
       setTimeout(() => {
         oscs.forEach((o) => {
           try {
@@ -402,7 +462,7 @@ export class PianoAudioEngine {
             /* ignore */
           }
         });
-      }, 300);
+      }, Math.max(40, Math.round(fadeDuration * 1000 + 40)));
     };
   }
 
@@ -437,12 +497,12 @@ export class PianoAudioEngine {
     osc1.start(now);
     osc2.start(now);
 
-    return () => {
+    return (fadeDuration: number = 0.18) => {
       if (!this.ctx) return;
       const releaseTime = this.ctx.currentTime;
       gainNode.gain.cancelScheduledValues(releaseTime);
       gainNode.gain.setValueAtTime(Math.max(0.0001, gainNode.gain.value), releaseTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.0001, releaseTime + 0.18);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, releaseTime + Math.max(0.02, fadeDuration));
       setTimeout(() => {
         try {
           osc1.stop();
@@ -450,7 +510,7 @@ export class PianoAudioEngine {
         } catch {
           /* ignore */
         }
-      }, 220);
+      }, Math.max(40, Math.round(fadeDuration * 1000 + 40)));
     };
   }
 
@@ -504,12 +564,12 @@ export class PianoAudioEngine {
     osc1.start(now);
     osc2.start(now);
 
-    return () => {
+    return (fadeDuration: number = 0.2) => {
       if (!this.ctx) return;
       const releaseTime = this.ctx.currentTime;
       gainNode.gain.cancelScheduledValues(releaseTime);
       gainNode.gain.setValueAtTime(Math.max(0.0001, gainNode.gain.value), releaseTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.0001, releaseTime + 0.2);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, releaseTime + Math.max(0.02, fadeDuration));
       setTimeout(() => {
         try {
           osc1.stop();
@@ -517,7 +577,7 @@ export class PianoAudioEngine {
         } catch {
           /* ignore */
         }
-      }, 250);
+      }, Math.max(40, Math.round(fadeDuration * 1000 + 40)));
     };
   }
 
@@ -560,12 +620,12 @@ export class PianoAudioEngine {
     tineOsc.start(now);
     tremolo.start(now);
 
-    return () => {
+    return (fadeDuration: number = 0.22) => {
       if (!this.ctx) return;
       const releaseTime = this.ctx.currentTime;
       gainNode.gain.cancelScheduledValues(releaseTime);
       gainNode.gain.setValueAtTime(Math.max(0.0001, gainNode.gain.value), releaseTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.0001, releaseTime + 0.22);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, releaseTime + Math.max(0.02, fadeDuration));
       setTimeout(() => {
         try {
           bodyOsc.stop();
@@ -574,7 +634,7 @@ export class PianoAudioEngine {
         } catch {
           /* ignore */
         }
-      }, 250);
+      }, Math.max(40, Math.round(fadeDuration * 1000 + 40)));
     };
   }
 
@@ -624,12 +684,12 @@ export class PianoAudioEngine {
     biteOsc.start(now);
     tremolo.start(now);
 
-    return () => {
+    return (fadeDuration: number = 0.22) => {
       if (!this.ctx) return;
       const releaseTime = this.ctx.currentTime;
       gainNode.gain.cancelScheduledValues(releaseTime);
       gainNode.gain.setValueAtTime(Math.max(0.0001, gainNode.gain.value), releaseTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.0001, releaseTime + 0.22);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, releaseTime + Math.max(0.02, fadeDuration));
       setTimeout(() => {
         try {
           reedOsc.stop();
@@ -638,7 +698,7 @@ export class PianoAudioEngine {
         } catch {
           /* ignore */
         }
-      }, 260);
+      }, Math.max(40, Math.round(fadeDuration * 1000 + 40)));
     };
   }
 
@@ -674,12 +734,12 @@ export class PianoAudioEngine {
     carrier.start(now);
     modulator.start(now);
 
-    return () => {
+    return (fadeDuration: number = 0.2) => {
       if (!this.ctx) return;
       const releaseTime = this.ctx.currentTime;
       gainNode.gain.cancelScheduledValues(releaseTime);
       gainNode.gain.setValueAtTime(Math.max(0.0001, gainNode.gain.value), releaseTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.0001, releaseTime + 0.2);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, releaseTime + Math.max(0.02, fadeDuration));
       setTimeout(() => {
         try {
           carrier.stop();
@@ -687,7 +747,7 @@ export class PianoAudioEngine {
         } catch {
           /* ignore */
         }
-      }, 220);
+      }, Math.max(40, Math.round(fadeDuration * 1000 + 40)));
     };
   }
 
@@ -725,12 +785,12 @@ export class PianoAudioEngine {
     lfo.start(now);
     osc.start(now);
 
-    return () => {
+    return (fadeDuration: number = 0.24) => {
       if (!this.ctx) return;
       const releaseTime = this.ctx.currentTime;
       gainNode.gain.cancelScheduledValues(releaseTime);
       gainNode.gain.setValueAtTime(Math.max(0.0001, gainNode.gain.value), releaseTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.0001, releaseTime + 0.24);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, releaseTime + Math.max(0.02, fadeDuration));
       setTimeout(() => {
         try {
           osc.stop();
@@ -738,7 +798,7 @@ export class PianoAudioEngine {
         } catch {
           /* ignore */
         }
-      }, 280);
+      }, Math.max(40, Math.round(fadeDuration * 1000 + 40)));
     };
   }
 
@@ -774,12 +834,12 @@ export class PianoAudioEngine {
     osc1.start(now);
     osc2.start(now);
 
-    return () => {
+    return (fadeDuration: number = 0.15) => {
       if (!this.ctx) return;
       const releaseTime = this.ctx.currentTime;
       gainNode.gain.cancelScheduledValues(releaseTime);
       gainNode.gain.setValueAtTime(Math.max(0.0001, gainNode.gain.value), releaseTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.0001, releaseTime + 0.15);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, releaseTime + Math.max(0.02, fadeDuration));
       setTimeout(() => {
         try {
           osc1.stop();
@@ -787,7 +847,7 @@ export class PianoAudioEngine {
         } catch {
           /* ignore */
         }
-      }, 200);
+      }, Math.max(40, Math.round(fadeDuration * 1000 + 40)));
     };
   }
 
@@ -835,12 +895,12 @@ export class PianoAudioEngine {
     osc2.start(now);
     subOsc.start(now);
 
-    return () => {
+    return (fadeDuration: number = 0.28) => {
       if (!this.ctx) return;
       const releaseTime = this.ctx.currentTime;
       gainNode.gain.cancelScheduledValues(releaseTime);
       gainNode.gain.setValueAtTime(Math.max(0.0001, gainNode.gain.value), releaseTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.0001, releaseTime + 0.28);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, releaseTime + Math.max(0.02, fadeDuration));
       setTimeout(() => {
         try {
           osc1.stop();
@@ -849,7 +909,7 @@ export class PianoAudioEngine {
         } catch {
           /* ignore */
         }
-      }, 320);
+      }, Math.max(40, Math.round(fadeDuration * 1000 + 40)));
     };
   }
 }

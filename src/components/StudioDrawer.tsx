@@ -30,6 +30,8 @@ interface StudioDrawerProps {
   onSelectInstrument: (inst: InstrumentType) => void;
   currentSongBpm?: number;
   initialTab?: 'instruments' | 'dsp' | 'metronome';
+  isCountInEnabled?: boolean;
+  onToggleCountIn?: () => void;
 }
 
 interface InstrumentMeta {
@@ -123,6 +125,8 @@ export const StudioDrawer: React.FC<StudioDrawerProps> = ({
   onSelectInstrument,
   currentSongBpm = 100,
   initialTab = 'instruments',
+  isCountInEnabled = true,
+  onToggleCountIn,
 }) => {
   const [activeTab, setActiveTab] = useState<'instruments' | 'dsp' | 'metronome'>(initialTab);
   const [dspSettings, setDspSettings] = useState<DSPSettings>(() => pianoEngine.getDSPSettings());
@@ -223,6 +227,12 @@ export const StudioDrawer: React.FC<StudioDrawerProps> = ({
       {/* Right-Flyout Studio Panel: Audition sounds live while tweaking! */}
       <div
         className="relative pointer-events-auto w-full sm:w-[420px] landscape:w-[420px] max-w-[90vw] h-full bg-[#0e101a]/95 backdrop-blur-3xl border-l border-white/20 shadow-[-20px_0_50px_rgba(0,0,0,0.8),inset_0_1px_1px_rgba(255,255,255,0.4)] flex flex-col p-5 overflow-y-auto animate-in slide-in-from-right duration-300"
+        style={{
+          paddingLeft: 'max(20px, env(safe-area-inset-left, 20px))',
+          paddingRight: 'max(20px, env(safe-area-inset-right, 20px))',
+          paddingTop: 'max(16px, env(safe-area-inset-top, 16px))',
+          paddingBottom: 'max(16px, env(safe-area-inset-bottom, 16px))',
+        }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sheet-handle block sm:hidden landscape:hidden" onClick={onClose} />
@@ -654,6 +664,31 @@ export const StudioDrawer: React.FC<StudioDrawerProps> = ({
                   {Math.round(volume * 100)}%
                 </span>
               </div>
+
+              {/* Pre-Roll Count-In Toggle Switch */}
+              {onToggleCountIn && (
+                <div className="flex items-center justify-between pt-2 border-t border-white/5 text-xs">
+                  <div>
+                    <span className="text-zinc-200 text-xs font-semibold block">Pre-Roll Count-In (1 Bar)</span>
+                    <span className="text-zinc-400 text-[10px] block">1 bar metronome clicks before playback begins</span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      triggerHaptic('light');
+                      onToggleCountIn();
+                    }}
+                    className={`relative w-11 h-6 rounded-full transition-colors cursor-pointer border ${
+                      isCountInEnabled ? 'bg-purple-600 border-purple-400' : 'bg-white/10 border-white/20'
+                    }`}
+                  >
+                    <span
+                      className={`block w-4 h-4 rounded-full bg-white transition-transform ${
+                        isCountInEnabled ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}

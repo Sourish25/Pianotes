@@ -11,6 +11,8 @@
   border-top: 1px solid rgba(255, 255, 255, 0.12);
   user-select: none;
   touch-action: none;
+  padding-left: max(0px, env(safe-area-inset-left, 0px));
+  padding-right: max(0px, env(safe-area-inset-right, 0px));
 }
 
 /* Red felt damper strip above keys */

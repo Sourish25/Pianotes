@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { pianoEngine } from '../audio/PianoEngine';
 import { isBlackKey, midiToNoteName } from '../utils/chordDetector';
 import { triggerHaptic } from '../utils/haptics';
+import { calculateKeyTouchVelocity } from '../utils/touchVelocity';
 import { Disc, ChevronLeft, ChevronRight, Tag } from 'lucide-react';
 
 export interface ActiveKeyInfo {
@@ -9,9 +10,9 @@ export interface ActiveKeyInfo {
   hand?: 'left' | 'right' | 'user';
 }
 
-interface PlayablePiano2DProps {
+export interface PlayablePiano2DProps {
   activeKeys?: number[] | ActiveKeyInfo[];
-  onUserPlayKey?: (midi: number) => void;
+  onUserPlayKey?: (midi: number, velocity?: number) => void;
   onUserReleaseKey?: (midi: number) => void;
   sustainPedal: boolean;
   onToggleSustain: () => void;
@@ -100,23 +101,29 @@ export const PlayablePiano2D: React.FC<PlayablePiano2DProps> = ({
 
   const [currentOctave, setCurrentOctave] = useState<number>(4);
 
-  // Handle Note Trigger & Release
-  const handleNoteStart = useCallback((midi: number) => {
-    triggerHaptic('key');
-    pianoEngine.playNote(midi, 0.85);
-    setPressedKeys((prev) => new Set(prev).add(midi));
-    if (onUserPlayKey) onUserPlayKey(midi);
-  }, [onUserPlayKey]);
+  // Handle Note Trigger & Release with Touch Velocity Sensitivity
+  const handleNoteStart = useCallback(
+    (midi: number, velocity: number = 0.85) => {
+      triggerHaptic('key');
+      pianoEngine.playNote(midi, velocity);
+      setPressedKeys((prev) => new Set(prev).add(midi));
+      if (onUserPlayKey) onUserPlayKey(midi, velocity);
+    },
+    [onUserPlayKey]
+  );
 
-  const handleNoteEnd = useCallback((midi: number) => {
-    pianoEngine.stopNote(midi);
-    setPressedKeys((prev) => {
-      const next = new Set(prev);
-      next.delete(midi);
-      return next;
-    });
-    if (onUserReleaseKey) onUserReleaseKey(midi);
-  }, [onUserReleaseKey]);
+  const handleNoteEnd = useCallback(
+    (midi: number) => {
+      pianoEngine.stopNote(midi);
+      setPressedKeys((prev) => {
+        const next = new Set(prev);
+        next.delete(midi);
+        return next;
+      });
+      if (onUserReleaseKey) onUserReleaseKey(midi);
+    },
+    [onUserReleaseKey]
+  );
 
   // Global window pointer listeners to guarantee zero stuck notes if finger lifts off-screen
   useEffect(() => {
@@ -140,83 +147,104 @@ export const PlayablePiano2D: React.FC<PlayablePiano2DProps> = ({
     };
   }, [handleNoteEnd]);
 
-  // Per-finger pointer event handlers
-  const handleKeyPointerDown = useCallback((e: React.PointerEvent, midi: number) => {
-    e.preventDefault();
-    try {
-      const el = e.currentTarget as HTMLElement;
-      if (el?.hasPointerCapture?.(e.pointerId)) {
-        el.releasePointerCapture(e.pointerId);
-      }
-    } catch {
-      // Ignore releasePointerCapture errors
-    }
-
-    const prevPitch = pointerMapRef.current.get(e.pointerId);
-    if (prevPitch !== undefined && prevPitch !== midi && prevPitch !== -1) {
-      const stillHeld = Array.from(pointerMapRef.current.entries()).some(
-        ([id, p]) => id !== e.pointerId && p === prevPitch
-      );
-      if (!stillHeld) {
-        handleNoteEnd(prevPitch);
-      }
-    }
-
-    pointerMapRef.current.set(e.pointerId, midi);
-    handleNoteStart(midi);
-  }, [handleNoteStart, handleNoteEnd]);
-
-  const handleKeyPointerUp = useCallback((e: React.PointerEvent, midi: number) => {
-    e.preventDefault();
-    const currentPitch = pointerMapRef.current.get(e.pointerId) ?? midi;
-    pointerMapRef.current.delete(e.pointerId);
-
-    if (currentPitch !== -1) {
-      const stillHeld = Array.from(pointerMapRef.current.values()).includes(currentPitch);
-      if (!stillHeld) {
-        handleNoteEnd(currentPitch);
-      }
-    }
-  }, [handleNoteEnd]);
-
-  const handleKeyPointerEnter = useCallback((e: React.PointerEvent, midi: number) => {
-    if (pointerMapRef.current.has(e.pointerId)) {
+  // Per-finger pointer event handlers with vertical velocity sensitivity
+  const handleKeyPointerDown = useCallback(
+    (e: React.PointerEvent, midi: number) => {
       e.preventDefault();
-      const prevPitch = pointerMapRef.current.get(e.pointerId);
-      if (prevPitch !== midi) {
-        pointerMapRef.current.set(e.pointerId, midi);
-        if (prevPitch !== undefined && prevPitch !== -1) {
-          const stillHeld = Array.from(pointerMapRef.current.values()).includes(prevPitch);
-          if (!stillHeld) {
-            handleNoteEnd(prevPitch);
-          }
+      try {
+        const el = e.currentTarget as HTMLElement;
+        if (el?.hasPointerCapture?.(e.pointerId)) {
+          el.releasePointerCapture(e.pointerId);
         }
-        handleNoteStart(midi);
+      } catch {
+        // Ignore releasePointerCapture errors
       }
-    }
-  }, [handleNoteStart, handleNoteEnd]);
+
+      const prevPitch = pointerMapRef.current.get(e.pointerId);
+      if (prevPitch !== undefined && prevPitch !== midi && prevPitch !== -1) {
+        const stillHeld = Array.from(pointerMapRef.current.entries()).some(
+          ([id, p]) => id !== e.pointerId && p === prevPitch
+        );
+        if (!stillHeld) {
+          handleNoteEnd(prevPitch);
+        }
+      }
+
+      const targetEl = e.currentTarget as HTMLElement;
+      const rect = targetEl.getBoundingClientRect();
+      const velocity = calculateKeyTouchVelocity(e.clientY, rect.top, rect.height);
+
+      pointerMapRef.current.set(e.pointerId, midi);
+      handleNoteStart(midi, velocity);
+    },
+    [handleNoteStart, handleNoteEnd]
+  );
+
+  const handleKeyPointerUp = useCallback(
+    (e: React.PointerEvent, midi: number) => {
+      e.preventDefault();
+      const currentPitch = pointerMapRef.current.get(e.pointerId) ?? midi;
+      pointerMapRef.current.delete(e.pointerId);
+
+      if (currentPitch !== -1) {
+        const stillHeld = Array.from(pointerMapRef.current.values()).includes(currentPitch);
+        if (!stillHeld) {
+          handleNoteEnd(currentPitch);
+        }
+      }
+    },
+    [handleNoteEnd]
+  );
+
+  const handleKeyPointerEnter = useCallback(
+    (e: React.PointerEvent, midi: number) => {
+      if (pointerMapRef.current.has(e.pointerId)) {
+        e.preventDefault();
+        const prevPitch = pointerMapRef.current.get(e.pointerId);
+        if (prevPitch !== midi) {
+          pointerMapRef.current.set(e.pointerId, midi);
+          if (prevPitch !== undefined && prevPitch !== -1) {
+            const stillHeld = Array.from(pointerMapRef.current.values()).includes(prevPitch);
+            if (!stillHeld) {
+              handleNoteEnd(prevPitch);
+            }
+          }
+          const targetEl = e.currentTarget as HTMLElement;
+          const rect = targetEl.getBoundingClientRect();
+          const velocity = calculateKeyTouchVelocity(e.clientY, rect.top, rect.height);
+          handleNoteStart(midi, velocity);
+        }
+      }
+    },
+    [handleNoteStart, handleNoteEnd]
+  );
 
   // Touch & Pointer glissando tracker for smooth sliding across piano keys
-  const handleViewportPointerMove = useCallback((e: React.PointerEvent) => {
-    if (!pointerMapRef.current.has(e.pointerId)) return;
-    const el = document.elementFromPoint(e.clientX, e.clientY);
-    const keyEl = el?.closest('[data-midi]');
-    const midiAttr = keyEl?.getAttribute('data-midi');
-    if (midiAttr) {
-      const targetMidi = parseInt(midiAttr, 10);
-      const prevPitch = pointerMapRef.current.get(e.pointerId);
-      if (prevPitch !== undefined && prevPitch !== targetMidi) {
-        pointerMapRef.current.set(e.pointerId, targetMidi);
-        if (prevPitch !== -1) {
-          const stillHeld = Array.from(pointerMapRef.current.values()).includes(prevPitch);
-          if (!stillHeld) {
-            handleNoteEnd(prevPitch);
+  const handleViewportPointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!pointerMapRef.current.has(e.pointerId)) return;
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const keyEl = el?.closest('[data-midi]');
+      const midiAttr = keyEl?.getAttribute('data-midi');
+      if (midiAttr) {
+        const targetMidi = parseInt(midiAttr, 10);
+        const prevPitch = pointerMapRef.current.get(e.pointerId);
+        if (prevPitch !== undefined && prevPitch !== targetMidi) {
+          pointerMapRef.current.set(e.pointerId, targetMidi);
+          if (prevPitch !== -1) {
+            const stillHeld = Array.from(pointerMapRef.current.values()).includes(prevPitch);
+            if (!stillHeld) {
+              handleNoteEnd(prevPitch);
+            }
           }
+          const rect = (keyEl as HTMLElement).getBoundingClientRect();
+          const velocity = calculateKeyTouchVelocity(e.clientY, rect.top, rect.height);
+          handleNoteStart(targetMidi, velocity);
         }
-        handleNoteStart(targetMidi);
       }
-    }
-  }, [handleNoteStart, handleNoteEnd]);
+    },
+    [handleNoteStart, handleNoteEnd]
+  );
 
   // Jump smoothly to a specific octave (C1 to C7)
   const scrollToOctave = useCallback((octave: number) => {
@@ -266,8 +294,14 @@ export const PlayablePiano2D: React.FC<PlayablePiano2DProps> = ({
 
   return (
     <div className="piano-wrapper">
-      {/* Sleek Minimal Octave & Sustain Ribbon with 36px+ Touch Targets */}
-      <div className="flex items-center justify-between px-3 py-1 bg-[#080910] border-b border-white/10 text-xs select-none">
+      {/* Sleek Minimal Octave & Sustain Ribbon with 36px+ Touch Targets & Safe Area Insets */}
+      <div
+        className="flex items-center justify-between px-3 py-1 bg-[#080910] border-b border-white/10 text-xs select-none"
+        style={{
+          paddingLeft: 'max(12px, env(safe-area-inset-left, 12px))',
+          paddingRight: 'max(12px, env(safe-area-inset-right, 12px))',
+        }}
+      >
         {/* Expanded Octave Switcher (min 36px touch targets) */}
         <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-white/5 border border-white/10">
           <span className="text-[10px] text-zinc-500 font-bold px-1 hidden sm:inline">OCTAVE</span>
@@ -340,7 +374,13 @@ export const PlayablePiano2D: React.FC<PlayablePiano2DProps> = ({
       <div className="piano-felt-strip" />
 
       {/* Octave Navigator Mini-map */}
-      <div className="octave-navigator">
+      <div
+        className="octave-navigator"
+        style={{
+          paddingLeft: 'max(12px, env(safe-area-inset-left, 12px))',
+          paddingRight: 'max(12px, env(safe-area-inset-right, 12px))',
+        }}
+      >
         <div
           className="mini-keyboard-preview cursor-pointer"
           onClick={handleMiniMapClick}
@@ -386,7 +426,13 @@ export const PlayablePiano2D: React.FC<PlayablePiano2DProps> = ({
           }
         }}
       >
-        <div className="keyboard-keys-container">
+        <div
+          className="keyboard-keys-container"
+          style={{
+            paddingLeft: 'max(16px, env(safe-area-inset-left, 16px))',
+            paddingRight: 'max(16px, env(safe-area-inset-right, 16px))',
+          }}
+        >
           {whiteKeys.map((wk) => {
             const isWhiteActive = activeKeysMap.has(wk.midi) || pressedKeys.has(wk.midi);
             const whiteHandClass = getKeyHandClass(wk.midi, isWhiteActive);

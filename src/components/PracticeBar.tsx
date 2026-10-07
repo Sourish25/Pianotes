@@ -18,6 +18,7 @@ import {
   Minimize2,
   ChevronDown,
   ChevronUp,
+  Timer,
 } from 'lucide-react';
 
 interface PracticeBarProps {
@@ -52,6 +53,9 @@ interface PracticeBarProps {
   onOpenVirtuosoSummary?: () => void;
   isZenMode?: boolean;
   onToggleZenMode?: () => void;
+  isCountInEnabled?: boolean;
+  onToggleCountIn?: () => void;
+  isCountingIn?: boolean;
 }
 
 export const PracticeBar: React.FC<PracticeBarProps> = ({
@@ -85,6 +89,9 @@ export const PracticeBar: React.FC<PracticeBarProps> = ({
   onOpenVirtuosoSummary,
   isZenMode = false,
   onToggleZenMode,
+  isCountInEnabled = true,
+  onToggleCountIn,
+  isCountingIn = false,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [userInteractedRecently, setUserInteractedRecently] = useState(true);
@@ -190,6 +197,8 @@ export const PracticeBar: React.FC<PracticeBarProps> = ({
       }`}
       style={{
         paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+        paddingLeft: 'max(8px, env(safe-area-inset-left, 8px))',
+        paddingRight: 'max(8px, env(safe-area-inset-right, 8px))',
       }}
     >
       {isCompact ? (
@@ -201,10 +210,12 @@ export const PracticeBar: React.FC<PracticeBarProps> = ({
               onTogglePlay();
             }}
             className="w-10 h-10 min-w-[40px] min-h-[40px] rounded-full flex items-center justify-center bg-white text-black hover:bg-zinc-200 active:scale-95 transition-all shadow-[0_0_16px_rgba(255,255,255,0.4)] cursor-pointer"
-            title={isPlaying ? 'Pause' : 'Play'}
+            title={isPlaying ? 'Pause' : isCountingIn ? 'Cancel Count-In' : 'Play'}
           >
             {isPlaying ? (
               <Pause className="w-4 h-4 fill-current text-black" />
+            ) : isCountingIn ? (
+              <Timer className="w-4 h-4 text-purple-600 animate-spin" />
             ) : (
               <Play className="w-4 h-4 fill-current text-black ml-0.5" />
             )}
@@ -352,10 +363,15 @@ export const PracticeBar: React.FC<PracticeBarProps> = ({
                   triggerHaptic('medium');
                   onTogglePlay();
                 }}
-                className="relative w-11 h-11 min-w-[44px] min-h-[44px] rounded-full flex items-center justify-center bg-white text-black hover:bg-zinc-200 active:scale-95 transition-all shadow-[0_0_18px_rgba(255,255,255,0.4),inset_0_1px_2px_rgba(255,255,255,0.9)] cursor-pointer"
+                className={`relative w-11 h-11 min-w-[44px] min-h-[44px] rounded-full flex items-center justify-center bg-white text-black hover:bg-zinc-200 active:scale-95 transition-all shadow-[0_0_18px_rgba(255,255,255,0.4),inset_0_1px_2px_rgba(255,255,255,0.9)] cursor-pointer ${
+                  isCountingIn ? 'ring-2 ring-purple-500 animate-pulse' : ''
+                }`}
+                title={isPlaying ? 'Pause' : isCountingIn ? 'Cancel Count-In' : 'Play'}
               >
                 {isPlaying ? (
                   <Pause className="w-4 h-4 fill-current text-black" />
+                ) : isCountingIn ? (
+                  <Timer className="w-4 h-4 text-purple-600 animate-spin" />
                 ) : (
                   <Play className="w-4 h-4 fill-current text-black ml-0.5" />
                 )}
@@ -373,7 +389,7 @@ export const PracticeBar: React.FC<PracticeBarProps> = ({
               </button>
             </div>
 
-            {/* Right Group: Tempo, Loop, Record, Mic, Score, Studio, Zen, Retract */}
+            {/* Right Group: Tempo, Count-In, Loop, Record, Mic, Score, Studio, Zen, Retract */}
             <div className="flex items-center gap-1">
               {/* Speed Pill */}
               <button
@@ -383,6 +399,25 @@ export const PracticeBar: React.FC<PracticeBarProps> = ({
               >
                 {tempo}x
               </button>
+
+              {/* Pre-Roll Count-In Toggle Pill */}
+              {onToggleCountIn && (
+                <button
+                  onClick={() => {
+                    triggerHaptic('light');
+                    onToggleCountIn();
+                  }}
+                  title={isCountInEnabled ? 'Pre-Roll Count-In (1 Bar) ON' : 'Pre-Roll Count-In OFF'}
+                  className={`flex items-center gap-1 px-2.5 min-h-[40px] rounded-full text-[10px] font-bold border transition-all ${
+                    isCountInEnabled
+                      ? 'bg-purple-600/30 border-purple-400 text-purple-200 shadow-[0_0_8px_rgba(168,85,247,0.35)]'
+                      : 'bg-white/5 border-white/10 text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  <Timer className={`w-3 h-3 ${isCountInEnabled ? 'text-purple-300' : 'text-zinc-500'}`} />
+                  <span className="hidden sm:inline">Count-In</span>
+                </button>
+              )}
 
               {/* A-B Loop Pill */}
               <button

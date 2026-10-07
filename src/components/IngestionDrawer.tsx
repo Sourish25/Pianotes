@@ -192,6 +192,12 @@ export const IngestionDrawer: React.FC<IngestionDrawerProps> = ({
       {/* Right-Flyout Ingestion & Song Library Panel */}
       <div
         className="relative pointer-events-auto w-full sm:w-[420px] landscape:w-[420px] max-w-[90vw] h-full bg-[#0e101a]/95 backdrop-blur-3xl border-l border-white/20 shadow-[-20px_0_50px_rgba(0,0,0,0.8),inset_0_1px_1px_rgba(255,255,255,0.4)] flex flex-col p-5 overflow-y-auto animate-in slide-in-from-right duration-300"
+        style={{
+          paddingLeft: 'max(20px, env(safe-area-inset-left, 20px))',
+          paddingRight: 'max(20px, env(safe-area-inset-right, 20px))',
+          paddingTop: 'max(16px, env(safe-area-inset-top, 16px))',
+          paddingBottom: 'max(16px, env(safe-area-inset-bottom, 16px))',
+        }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sheet-handle block sm:hidden landscape:hidden" onClick={onClose} />

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useMemo } from 'react';
 import * as THREE from 'three';
 import type { NoteEvent, HandType } from '../types';
 import { detectChord } from '../utils/chordDetector';
+import { triggerHaptic } from '../utils/haptics';
 import { Camera } from 'lucide-react';
 
 interface Waterfall3DProps {
@@ -12,6 +13,7 @@ interface Waterfall3DProps {
   userPlayedKeys?: number[];
   speed?: number; // visual waterfall speed
   isDualView?: boolean;
+  onToggleZenMode?: () => void;
 }
 
 interface Particle {
@@ -29,6 +31,7 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
   activeHand,
   userPlayedKeys = [],
   isDualView = false,
+  onToggleZenMode,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [activeChordName, setActiveChordName] = useState<string | null>(null);
@@ -51,6 +54,11 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
   const activeHandRef = useRef(activeHand);
   const userPlayedKeysRef = useRef(userPlayedKeys);
   const isDualViewRef = useRef(isDualView);
+
+  const onToggleZenModeRef = useRef(onToggleZenMode);
+  useEffect(() => {
+    onToggleZenModeRef.current = onToggleZenMode;
+  }, [onToggleZenMode]);
 
   useEffect(() => {
     isDualViewRef.current = isDualView;
@@ -250,7 +258,13 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
     scene.add(particlePoints);
     particlePointsRef.current = particlePoints;
 
-    // Pointer Drag Rotation Handlers
+    // Double-Tap on Canvas Gesture Detection (for instant Immersive Zen Mode toggle)
+    let lastTapTime = 0;
+    let lastTapPos = { x: 0, y: 0 };
+    const TAP_THRESHOLD_MS = 320;
+    const TAP_DISTANCE_THRESHOLD = 25; // px
+
+    // Pointer Drag Rotation & Double-Tap Handlers
     const handlePointerDown = (e: PointerEvent) => {
       isDraggingRef.current = true;
       dragStartRef.current = { x: e.clientX, y: e.clientY };
@@ -266,8 +280,29 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
       cameraAngleRef.current.pitch = Math.max(-0.25, Math.min(0.35, cameraAngleRef.current.pitch + dy * 0.004));
     };
 
-    const handlePointerUp = () => {
+    const handlePointerUp = (e: PointerEvent) => {
       isDraggingRef.current = false;
+
+      // Check if tap was on the 3D waterfall canvas container
+      const target = e.target as HTMLElement | null;
+      if (container.contains(target)) {
+        const now = performance.now();
+        const timeDiff = now - lastTapTime;
+        const dx = Math.abs(e.clientX - lastTapPos.x);
+        const dy = Math.abs(e.clientY - lastTapPos.y);
+
+        if (timeDiff < TAP_THRESHOLD_MS && dx < TAP_DISTANCE_THRESHOLD && dy < TAP_DISTANCE_THRESHOLD) {
+          // Double-tap gesture on canvas confirmed!
+          if (onToggleZenModeRef.current) {
+            triggerHaptic('medium');
+            onToggleZenModeRef.current();
+          }
+          lastTapTime = 0;
+        } else {
+          lastTapTime = now;
+          lastTapPos = { x: e.clientX, y: e.clientY };
+        }
+      }
     };
 
     const handleWheel = (e: WheelEvent) => {
@@ -278,6 +313,10 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
 
     const handleDblClick = () => {
       cameraAngleRef.current = { yaw: 0, pitch: 0, zoom: 1.0 };
+      if (onToggleZenModeRef.current) {
+        triggerHaptic('medium');
+        onToggleZenModeRef.current();
+      }
     };
 
     container.addEventListener('pointerdown', handlePointerDown);

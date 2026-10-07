@@ -1,7 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 import { detectChord, midiToNoteName, isBlackKey } from '../utils/chordDetector';
 import { SAMPLE_SONGS } from '../data/songs';
 import { pianoEngine } from '../audio/PianoEngine';
+import { calculateKeyTouchVelocity } from '../utils/touchVelocity';
+import { countInEngine } from '../audio/CountInEngine';
+import { micListener } from '../audio/MicrophoneListener';
 import {
   evaluateStrikeTiming,
   getComboMultiplier,
@@ -758,4 +761,338 @@ describe('Edge Cases & Boundary Safeguards (v1.3.0)', () => {
     expect(calculateStarRating(calculateAccuracy(allMisses)).stars).toBe(0);
   });
 });
+
+describe('Touch Velocity Sensitivity (v2.2.0)', () => {
+  it('maps key touch vertically from piano (0.45 at root) to forte (0.90 at front lip)', () => {
+    // Top root of key (clientY = top -> ratio = 0)
+    expect(calculateKeyTouchVelocity(100, 100, 200)).toBeCloseTo(0.45, 2);
+
+    // Front lip of key (clientY = top + height -> ratio = 1)
+    expect(calculateKeyTouchVelocity(300, 100, 200)).toBeCloseTo(0.90, 2);
+
+    // Exact middle of key (clientY = top + 0.5 * height -> ratio = 0.5)
+    expect(calculateKeyTouchVelocity(200, 100, 200)).toBeCloseTo(0.675, 3);
+  });
+
+  it('clamps touches that land outside key bounds safely', () => {
+    // Touch above key (e.g. dragging in from ribbon)
+    expect(calculateKeyTouchVelocity(50, 100, 200)).toBeCloseTo(0.45, 2);
+
+    // Touch below key lip
+    expect(calculateKeyTouchVelocity(400, 100, 200)).toBeCloseTo(0.90, 2);
+  });
+
+  it('falls back to standard 0.85 velocity on degenerate or zero key height', () => {
+    expect(calculateKeyTouchVelocity(100, 100, 0)).toBe(0.85);
+    expect(calculateKeyTouchVelocity(100, 100, -10)).toBe(0.85);
+  });
+});
+
+describe('Pre-Roll Count-In Engine (v2.2.0)', () => {
+  it('schedules cadence ticks and invokes completion for 4/4 1-bar count-in', () => {
+    vi.useFakeTimers();
+    const ticks: { beat: number; total: number; isAccented: boolean }[] = [];
+    let completed = false;
+
+    countInEngine.start({
+      bpm: 120, // 500ms per beat
+      beats: 4,
+      playAudio: false,
+      onTick: (beat, total, isAccented) => {
+        ticks.push({ beat, total, isAccented });
+      },
+      onComplete: () => {
+        completed = true;
+      },
+    });
+
+    expect(countInEngine.isRunning()).toBe(true);
+    expect(ticks.length).toBe(1);
+    expect(ticks[0]).toEqual({ beat: 1, total: 4, isAccented: true });
+
+    // Advance 500ms -> Beat 2
+    vi.advanceTimersByTime(500);
+    expect(ticks.length).toBe(2);
+    expect(ticks[1]).toEqual({ beat: 2, total: 4, isAccented: false });
+
+    // Advance 1000ms -> Beat 3 & 4
+    vi.advanceTimersByTime(1000);
+    expect(ticks.length).toBe(4);
+    expect(ticks[2]).toEqual({ beat: 3, total: 4, isAccented: false });
+    expect(ticks[3]).toEqual({ beat: 4, total: 4, isAccented: false });
+
+    // Advance final 500ms -> Bar completes at 2000ms
+    vi.advanceTimersByTime(500);
+    expect(completed).toBe(true);
+    expect(countInEngine.isRunning()).toBe(false);
+    expect(countInEngine.getCurrentBeat()).toBe(0);
+
+    vi.useRealTimers();
+  });
+
+  it('cancels pending count-in cleanly without triggering onComplete', () => {
+    vi.useFakeTimers();
+    let completed = false;
+    let ticksCount = 0;
+
+    countInEngine.start({
+      bpm: 120,
+      beats: 4,
+      playAudio: false,
+      onTick: () => {
+        ticksCount++;
+      },
+      onComplete: () => {
+        completed = true;
+      },
+    });
+
+    expect(countInEngine.isRunning()).toBe(true);
+    expect(ticksCount).toBe(1);
+
+    // Cancel after beat 1
+    countInEngine.cancel();
+    expect(countInEngine.isRunning()).toBe(false);
+    expect(countInEngine.getCurrentBeat()).toBe(0);
+
+    // Fast-forward past full measure
+    vi.advanceTimersByTime(3000);
+    expect(ticksCount).toBe(1);
+    expect(completed).toBe(false);
+
+    vi.useRealTimers();
+  });
+
+  it('supports custom beat counts (e.g. 3/4 waltz count-in)', () => {
+    vi.useFakeTimers();
+    const beats: number[] = [];
+    let completed = false;
+
+    countInEngine.start({
+      bpm: 180, // 333.3ms per beat
+      beats: 3,
+      playAudio: false,
+      onTick: (beat) => beats.push(beat),
+      onComplete: () => {
+        completed = true;
+      },
+    });
+
+    expect(countInEngine.getTotalBeats()).toBe(3);
+    vi.advanceTimersByTime(1100);
+    expect(beats).toEqual([1, 2, 3]);
+    expect(completed).toBe(true);
+
+    vi.useRealTimers();
+  });
+});
+
+describe('Microphone Acoustic Overtone Suppression (v2.2.0)', () => {
+  it('corrects 2nd harmonic overtone octave up to fundamental frequency', () => {
+    const bufferSize = 1024;
+    const c = new Float32Array(bufferSize).fill(0);
+
+    // Candidate period detected at T0 = 100 (e.g. 441Hz 2nd harmonic overtone)
+    const candidatePeriod = 100;
+    c[candidatePeriod] = 1.0;
+
+    // True fundamental is at 2 * T0 = 200 (220.5Hz) with strong correlation (80% of maxVal)
+    c[200] = 0.82;
+
+    const sampleRate = 44100;
+    const correctedPeriod = micListener.suppressOvertones(c, candidatePeriod, 1.0, sampleRate);
+
+    expect(correctedPeriod).toBe(200);
+  });
+
+  it('corrects 3rd harmonic overtone to lower register fundamental', () => {
+    const bufferSize = 1024;
+    const c = new Float32Array(bufferSize).fill(0);
+
+    // Candidate period at T0 = 80
+    const candidatePeriod = 80;
+    c[candidatePeriod] = 1.0;
+
+    // 2x period is weak
+    c[160] = 0.4;
+    // 3x period is strong (fundamental)
+    c[240] = 0.78;
+
+    const sampleRate = 44100;
+    const correctedPeriod = micListener.suppressOvertones(c, candidatePeriod, 1.0, sampleRate);
+
+    expect(correctedPeriod).toBe(240);
+  });
+
+  it('retains candidate period if subharmonics do not exceed threshold', () => {
+    const bufferSize = 1024;
+    const c = new Float32Array(bufferSize).fill(0);
+
+    const candidatePeriod = 100;
+    c[candidatePeriod] = 1.0;
+    // Both 2x and 3x subharmonics are below 72%
+    c[200] = 0.45;
+    c[300] = 0.35;
+
+    const sampleRate = 44100;
+    const correctedPeriod = micListener.suppressOvertones(c, candidatePeriod, 1.0, sampleRate);
+
+    expect(correctedPeriod).toBe(candidatePeriod);
+  });
+
+  it('guards against invalid periods or zero maximum correlation', () => {
+    const c = new Float32Array(256).fill(0);
+    expect(micListener.suppressOvertones(c, 0, 1.0, 44100)).toBe(0);
+    expect(micListener.suppressOvertones(c, -10, 1.0, 44100)).toBe(-10);
+    expect(micListener.suppressOvertones(c, 50, 0, 44100)).toBe(50);
+  });
+});
+
+describe('Polyphonic Voice Stealing & Audio Engine Hardening (v2.2.0)', () => {
+  // Set up mock Web Audio environment for node test runner
+  class MockAudioNode {
+    connect() {}
+    disconnect() {}
+  }
+
+  class MockGainNode extends MockAudioNode {
+    gain = {
+      value: 1,
+      setValueAtTime: vi.fn(),
+      linearRampToValueAtTime: vi.fn(),
+      exponentialRampToValueAtTime: vi.fn(),
+      setTargetAtTime: vi.fn(),
+      cancelScheduledValues: vi.fn(),
+    };
+  }
+
+  class MockOscillatorNode extends MockAudioNode {
+    frequency = {
+      setValueAtTime: vi.fn(),
+      exponentialRampToValueAtTime: vi.fn(),
+    };
+    start = vi.fn();
+    stop = vi.fn();
+  }
+
+  class MockBiquadFilterNode extends MockAudioNode {
+    frequency = { setValueAtTime: vi.fn(), exponentialRampToValueAtTime: vi.fn() };
+    Q = { setValueAtTime: vi.fn() };
+  }
+
+  class MockAudioContext {
+    currentTime = 10.0;
+    state = 'running';
+    destination = new MockAudioNode();
+    createGain() {
+      return new MockGainNode();
+    }
+    createOscillator() {
+      return new MockOscillatorNode();
+    }
+    createBiquadFilter() {
+      return new MockBiquadFilterNode();
+    }
+    createWaveShaper() {
+      return { curve: null, oversample: '4x', connect: vi.fn() };
+    }
+    createDelay() {
+      return { delayTime: { setValueAtTime: vi.fn() }, connect: vi.fn() };
+    }
+    createConvolver() {
+      return { buffer: null, connect: vi.fn() };
+    }
+    createBuffer() {
+      return { getChannelData: () => new Float32Array(100) };
+    }
+    createStereoPanner() {
+      return { pan: { setValueAtTime: vi.fn() }, connect: vi.fn() };
+    }
+    resume = vi.fn().mockResolvedValue(undefined);
+    close = vi.fn().mockResolvedValue(undefined);
+  }
+
+  const originalWindow = globalThis.window;
+
+  beforeAll(() => {
+    (globalThis as unknown as { window: unknown }).window = {
+      AudioContext: MockAudioContext,
+      webkitAudioContext: MockAudioContext,
+    };
+  });
+
+  afterAll(() => {
+    (globalThis as unknown as { window: unknown }).window = originalWindow;
+  });
+
+  beforeEach(() => {
+    // Reset all notes
+    for (let p = 21; p <= 108; p++) {
+      pianoEngine.stopNote(p);
+    }
+    pianoEngine.setSustainPedal(false);
+  });
+
+  it('exposes MAX_VOICES of 32', () => {
+    expect(pianoEngine.getMaxVoices()).toBe(32);
+  });
+
+  it('caps active voice count at 32 and steals oldest voices when exceeded', () => {
+    // Play 32 distinct notes (pitches 30 to 61)
+    for (let pitch = 30; pitch < 30 + 32; pitch++) {
+      pianoEngine.playNote(pitch, 0.8);
+    }
+
+    expect(pianoEngine.getActiveVoiceCount()).toBe(32);
+
+    // Play 33rd note: voice stealing must trigger and active voice count must remain <= 32
+    pianoEngine.playNote(70, 0.8);
+    expect(pianoEngine.getActiveVoiceCount()).toBe(32);
+    // Oldest voice (30) was stolen, newest voice (70) is active
+    expect(pianoEngine.getActivePitches().includes(70)).toBe(true);
+    expect(pianoEngine.getActivePitches().includes(30)).toBe(false);
+  });
+
+  it('prioritizes stealing sustained notes over actively held notes', () => {
+    // Play note 40 and note 50
+    pianoEngine.playNote(40, 0.8);
+    pianoEngine.playNote(50, 0.8);
+
+    // Press sustain pedal
+    pianoEngine.setSustainPedal(true);
+
+    // Release note 40 (key released, but sustained by pedal)
+    pianoEngine.stopNote(40);
+
+    // Note 50 is still physically held (isSustained = false)
+    // Now fill remaining 30 voices (total 32 voices)
+    for (let p = 60; p < 90; p++) {
+      pianoEngine.playNote(p, 0.8);
+    }
+    expect(pianoEngine.getActiveVoiceCount()).toBe(32);
+
+    // Note 40 is sustained, note 50 is actively held
+    // When playing a 33rd note, voice stealing should steal sustained note 40 first!
+    pianoEngine.playNote(100, 0.8);
+
+    expect(pianoEngine.getActiveVoiceCount()).toBe(32);
+    expect(pianoEngine.getActivePitches().includes(40)).toBe(false); // Sustained was stolen
+    expect(pianoEngine.getActivePitches().includes(50)).toBe(true);  // Actively held was preserved!
+  });
+
+  it('releases all sustained voices when sustain pedal is released', () => {
+    pianoEngine.setSustainPedal(true);
+    pianoEngine.playNote(60, 0.8);
+    pianoEngine.playNote(64, 0.8);
+    pianoEngine.stopNote(60);
+    pianoEngine.stopNote(64);
+
+    expect(pianoEngine.getActiveVoiceCount()).toBe(2);
+
+    // Release sustain pedal -> both sustained notes should be removed
+    pianoEngine.setSustainPedal(false);
+    expect(pianoEngine.getActiveVoiceCount()).toBe(0);
+  });
+});
+
 

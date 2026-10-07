@@ -28,9 +28,17 @@ export class MicrophoneListener {
       });
 
       const source = this.audioCtx.createMediaStreamSource(this.mediaStream);
+
+      // Acoustic Lowpass Filter (2400Hz) to suppress ultrasonic string hammer transient clicks
+      const lowpass = this.audioCtx.createBiquadFilter();
+      lowpass.type = 'lowpass';
+      lowpass.frequency.setValueAtTime(2400, this.audioCtx.currentTime);
+
       this.analyser = this.audioCtx.createAnalyser();
       this.analyser.fftSize = 2048;
-      source.connect(this.analyser);
+
+      source.connect(lowpass);
+      lowpass.connect(this.analyser);
 
       this.buffer = new Float32Array(this.analyser.fftSize);
       this.isListening = true;
@@ -136,10 +144,14 @@ export class MicrophoneListener {
     }
 
     let T0 = maxpos;
+    if (maxpos > 0 && maxval > 0) {
+      T0 = this.suppressOvertones(c, maxpos, maxval, sampleRate);
+    }
+
     if (T0 > 0 && T0 < trimmedBuf.length - 1) {
-      const x1 = c[T0 - 1];
-      const x2 = c[T0];
-      const x3 = c[T0 + 1];
+      const x1 = c[Math.floor(T0) - 1] ?? c[0];
+      const x2 = c[Math.floor(T0)] ?? c[0];
+      const x3 = c[Math.floor(T0) + 1] ?? c[0];
       const a = (x1 + x3 - 2 * x2) / 2;
       const b = (x3 - x1) / 2;
       if (a) {
@@ -148,6 +160,62 @@ export class MicrophoneListener {
     }
 
     return sampleRate / T0;
+  }
+
+  /**
+   * Overtone Suppression:
+   * Inspects if candidate T0 (period) is actually an overtone (e.g. 2nd or 3rd harmonic).
+   * In pianos, the 2nd harmonic (octave higher) or 3rd harmonic can often have higher amplitude
+   * than the fundamental. By inspecting c[2 * T0] and c[3 * T0], if a sub-harmonic peak has
+   * substantial correlation (>= 72%), we choose the sub-harmonic (lower frequency fundamental).
+   */
+  public suppressOvertones(
+    c: Float32Array,
+    candidatePeriod: number,
+    maxVal: number,
+    sampleRate: number
+  ): number {
+    if (candidatePeriod <= 0 || maxVal <= 0) return candidatePeriod;
+
+    // Check 2x period (octave lower fundamental)
+    const doublePeriod = Math.round(candidatePeriod * 2);
+    if (doublePeriod < c.length - 2) {
+      let localMax = -1;
+      let localPos = doublePeriod;
+      for (let offset = -4; offset <= 4; offset++) {
+        const idx = doublePeriod + offset;
+        if (idx >= 0 && idx < c.length && c[idx] > localMax) {
+          localMax = c[idx];
+          localPos = idx;
+        }
+      }
+
+      const fundFreq = sampleRate / localPos;
+      if (localMax >= maxVal * 0.72 && fundFreq >= 27.5) {
+        return localPos;
+      }
+    }
+
+    // Check 3rd harmonic (3x period) for lower registers
+    const triplePeriod = Math.round(candidatePeriod * 3);
+    if (triplePeriod < c.length - 2) {
+      let localMax = -1;
+      let localPos = triplePeriod;
+      for (let offset = -4; offset <= 4; offset++) {
+        const idx = triplePeriod + offset;
+        if (idx >= 0 && idx < c.length && c[idx] > localMax) {
+          localMax = c[idx];
+          localPos = idx;
+        }
+      }
+
+      const fundFreq = sampleRate / localPos;
+      if (localMax >= maxVal * 0.75 && fundFreq >= 27.5) {
+        return localPos;
+      }
+    }
+
+    return candidatePeriod;
   }
 }
 

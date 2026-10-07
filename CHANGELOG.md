@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.2.0] - 2026-10-07
+
+### 🎹 Audio Engine Hardening, Pre-Roll Count-In & Acoustic Polish
+- **Polyphonic Voice Stealing & Audio Thread Protection**:
+  - Implemented dynamic polyphonic voice stealing in `PianoEngine.ts` capping concurrent voices to 32 (`MAX_VOICES = 32`).
+  - Prioritizes stealing older sustained notes (keys released, held by sustain pedal) before stealing actively held voices.
+  - Applies a smooth 50ms exponential release fade (`0.05s`) on stolen voices to eliminate audio thread overload, crackling, pops, and DSP graph degradation on Android devices during complex arpeggios.
+  - Added voice engine inspector methods (`getActiveVoiceCount()`, `getMaxVoices()`, `getActivePitches()`) and optional `fadeDuration` support across all 9 synthesizer engines.
+- **Vertical Touch Velocity Sensitivity on 2D Keys**:
+  - Pure calculation utility `calculateKeyTouchVelocity(clientY, top, height)` in `src/utils/touchVelocity.ts`.
+  - Linear velocity interpolation from `0.45` (pianissimo/piano at black key root) to `0.90` (forte at front lip of the white keys).
+  - Integrated across pointer down, pointer move (glissando), and pointer enter events in `PlayablePiano2D.tsx`, passing realistic velocity to both synthesizer audio and MIDI performance recording.
+- **Pre-Roll Count-In Engine & Interactive HUD Overlay**:
+  - Created standalone singleton `CountInEngine.ts` providing metronome-synced count-in (1, 2, 3, 4) with accented audio clicks on beat 1.
+  - Interactive Pre-Roll Count-In toggle switch in both the bottom `PracticeBar.tsx` transport bar and `StudioDrawer.tsx` Metronome tab.
+  - High-visibility Liquid Glass Count-In visual HUD overlay with pulsing beat digits, progress dot indicators, and automatic countdown before piece playback begins or A-B loops restart.
+- **Microphone Acoustic Pitch Detection & Overtone Suppression**:
+  - Added acoustic lowpass filter (2400Hz) in `MicrophoneListener.ts` to suppress string hammer transient clicks.
+  - Implemented harmonic overtone suppression (`suppressOvertones`) inspecting 2x and 3x candidate periods against a 72% correlation threshold, resolving false 2nd and 3rd harmonic octave-up errors down to true piano fundamentals.
+  - Added real-time floating Acoustic Pitch Feedback HUD badge (`"Heard: C4 / 261.6 Hz"`) during microphone practice mode with auto-fade and audio level visualizer.
+- **Canvas Gestures & Android Cutout Insets**:
+  - Double-tap gesture on 3D Waterfall canvas (<320ms, <25px displacement) with medium haptic feedback to toggle Immersive Zen Mode instantly.
+  - Applied camera punch-hole notch safe-area insets (`env(safe-area-inset-left)` and `env(safe-area-inset-right)`) across header navigation bar, 2D piano wrapper (`.piano-wrapper`), right-flyout sheets (`.liquid-sheet`), and bottom practice transport bar.
+- **Comprehensive Test Coverage & Quality Assurance**:
+  - Expanded test suite to 53 comprehensive unit tests (`npm test` 100% passing) covering touch velocity mapping, count-in beat scheduling, cancellation, voice stealing priority, and overtone suppression.
+  - Maintained zero lint errors and zero warnings (`npm run lint` with Oxlint).
+
+---
+
 ## [2.1.0] - 2026-10-07
 
 ### 💎 Hardcore Design Critique Remediation & Visual Spatial Polish

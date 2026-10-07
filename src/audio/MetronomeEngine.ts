@@ -100,6 +100,13 @@ export class MetronomeEngine {
     }
   }
 
+  public playClick(isAccented: boolean = false) {
+    this.initContext();
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    this.scheduleClick(now, isAccented ? 0 : 1);
+  }
+
   public getBeatsPerMeasure(): number {
     switch (this.timeSignature) {
       case '3/4':
