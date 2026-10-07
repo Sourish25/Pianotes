@@ -13,6 +13,7 @@ interface Waterfall3DProps {
   userPlayedKeys?: number[];
   speed?: number; // visual waterfall speed
   isDualView?: boolean;
+  isZenMode?: boolean;
   onToggleZenMode?: () => void;
 }
 
@@ -31,6 +32,7 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
   activeHand,
   userPlayedKeys = [],
   isDualView = false,
+  isZenMode = false,
   onToggleZenMode,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -137,8 +139,14 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
     sceneRef.current = scene;
 
     const camera = new THREE.PerspectiveCamera(48, width / height, 0.1, 1000);
-    camera.position.set(0, 22, 28);
-    camera.lookAt(0, -1, -12);
+    const initialCamY = isDualViewRef.current ? 22 : 14.5;
+    const initialCamZ = isDualViewRef.current ? 28 : 21.5;
+    camera.position.set(0, initialCamY, initialCamZ);
+    if (isDualViewRef.current) {
+      camera.lookAt(0, -1, -12);
+    } else {
+      camera.lookAt(0, 1.0, -6);
+    }
     cameraRef.current = camera;
 
     const renderer = new THREE.WebGLRenderer({
@@ -521,13 +529,19 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
       const targetCamX = isDualViewRef.current
         ? 0
         : avgX * 0.2 + cameraAngleRef.current.yaw * 16;
-      const targetCamY = (22 + cameraAngleRef.current.pitch * 14) * cameraAngleRef.current.zoom;
-      const targetCamZ = 28 * cameraAngleRef.current.zoom;
+      const targetCamY = isDualViewRef.current
+        ? (22 + cameraAngleRef.current.pitch * 14) * cameraAngleRef.current.zoom
+        : (14.5 + cameraAngleRef.current.pitch * 12) * cameraAngleRef.current.zoom;
+      const targetCamZ = (isDualViewRef.current ? 28 : 21.5) * cameraAngleRef.current.zoom;
 
-      camera.position.x += (targetCamX - camera.position.x) * (isDualViewRef.current ? 0.2 : 0.05);
-      camera.position.y += (targetCamY - camera.position.y) * 0.05;
-      camera.position.z += (targetCamZ - camera.position.z) * 0.05;
-      camera.lookAt(targetCamX * 0.25, -1, -12);
+      camera.position.x += (targetCamX - camera.position.x) * (isDualViewRef.current ? 0.2 : 0.08);
+      camera.position.y += (targetCamY - camera.position.y) * 0.08;
+      camera.position.z += (targetCamZ - camera.position.z) * 0.08;
+      if (isDualViewRef.current) {
+        camera.lookAt(0, -1, -12);
+      } else {
+        camera.lookAt(targetCamX * 0.25, 1.0, -6);
+      }
 
       // Pulse strike line neon glow
       if (strikeLineMeshRef.current) {
@@ -574,14 +588,13 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
         title="Click and drag to orbit 3D camera angle"
       />
 
-      {/* Floating Chord Badge relocated to unobtrusive top-left corner */}
+      {/* Floating Chord Badge positioned safely below top header with safe area padding */}
       {activeChordName && (
         <div
           className="floating-chord-badge"
           style={{
-            top: '20%',
-            left: 'max(85px, 18%)',
-            transform: 'translate(-50%, -50%)',
+            top: isZenMode ? '16px' : '64px',
+            left: 'max(16px, env(safe-area-inset-left, 16px))',
           }}
         >
           <div className="w-2.5 h-2.5 rounded-full bg-amber-400 shadow-[0_0_10px_#f59e0b] animate-pulse" />
@@ -603,7 +616,13 @@ export const Waterfall3D: React.FC<Waterfall3DProps> = ({
       )}
 
       {/* Subtle 3D Camera Orbit & Zoom Reset Pill */}
-      <div className="absolute top-3 right-3 flex items-center gap-2 z-30 pointer-events-auto">
+      <div
+        className="absolute flex items-center gap-2 z-30 pointer-events-auto"
+        style={{
+          top: isZenMode ? '12px' : '64px',
+          right: 'max(16px, env(safe-area-inset-right, 16px))',
+        }}
+      >
         <button
           onClick={() => {
             cameraAngleRef.current = { yaw: 0, pitch: 0, zoom: 1.0 };

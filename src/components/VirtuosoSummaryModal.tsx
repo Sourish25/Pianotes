@@ -107,7 +107,7 @@ export const VirtuosoSummaryModal: React.FC<VirtuosoSummaryModalProps> = ({
               </div>
               <div>
                 <h3 className="text-lg md:text-xl font-black tracking-tight text-white">
-                  Virtuoso Performance
+                  {score.score > 0 ? 'Virtuoso Performance' : 'Practice Review'}
                 </h3>
                 <p className="text-xs text-zinc-400 font-medium truncate max-w-[280px]">
                   {songTitle} &bull; <span className="text-zinc-500">{composer}</span>
@@ -154,7 +154,7 @@ export const VirtuosoSummaryModal: React.FC<VirtuosoSummaryModalProps> = ({
               </div>
 
               <div className="inline-block px-3.5 py-1 rounded-full text-[11px] font-extrabold uppercase tracking-widest bg-gradient-to-r from-purple-500/20 via-amber-500/20 to-pink-500/20 border border-white/20 text-white shadow-inner mb-3">
-                {label} ({rank})
+                {score.score > 0 ? `${label} (${rank})` : 'Practice Run (Ready to Play)'}
               </div>
 
               <div className="grid grid-cols-3 gap-2 w-full">

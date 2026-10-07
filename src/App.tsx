@@ -20,7 +20,7 @@ import { downloadMidiFile } from './utils/midiWriter';
 import { LiquidGlassSVGDefs, LiquidGlassButton } from './components/LiquidGlass';
 import { Waterfall3D } from './components/Waterfall3D';
 import { PlayablePiano2D } from './components/PlayablePiano2D';
-import { PracticeBar } from './components/PracticeBar';
+import { PracticeBar, CompactTransportPill } from './components/PracticeBar';
 import { IngestionDrawer } from './components/IngestionDrawer';
 import { StudioDrawer } from './components/StudioDrawer';
 import { VirtuosoSummaryModal } from './components/VirtuosoSummaryModal';
@@ -125,6 +125,7 @@ export const App: React.FC = () => {
   const [studioInitialTab, setStudioInitialTab] = useState<'instruments' | 'dsp' | 'metronome'>('instruments');
   const [showInfoModal, setShowInfoModal] = useState<boolean>(false);
   const [showVirtuosoSummary, setShowVirtuosoSummary] = useState<boolean>(false);
+  const [isPracticeBarExpanded, setIsPracticeBarExpanded] = useState<boolean>(false);
 
   // Performance Scoring & Gamification
   const scoreKeeperRef = useRef<ScoreKeeper>(new ScoreKeeper(SAMPLE_SONGS[0].notes.length));
@@ -863,7 +864,11 @@ export const App: React.FC = () => {
       </header>
 
       {/* Main Viewport Container */}
-      <main className="relative flex-1 w-full overflow-hidden flex flex-col">
+      <main
+        className={`relative flex-1 w-full overflow-hidden flex flex-col transition-all duration-300 ${
+          isZenMode ? 'pt-0' : 'pt-[54px]'
+        }`}
+      >
         {/* Real-time Strike Evaluation Floating HUD Banner */}
         {latestStrike && (
           <div
@@ -953,6 +958,7 @@ export const App: React.FC = () => {
               activeHand={activeHand}
               userPlayedKeys={userPlayedPitches}
               isDualView={viewportMode === 'dual'}
+              isZenMode={isZenMode}
               onToggleZenMode={() => setIsZenMode((prev) => !prev)}
             />
           </div>
@@ -962,7 +968,7 @@ export const App: React.FC = () => {
         {(viewportMode === 'piano2d' || viewportMode === 'dual') && (
           <div
             className={`relative w-full ${
-              viewportMode === 'dual' ? 'flex-none min-h-[225px] sm:min-h-[265px]' : 'h-full'
+              viewportMode === 'dual' ? 'flex-none min-h-[225px] sm:min-h-[265px]' : 'flex-1 h-full min-h-0'
             } transition-all duration-300 overflow-hidden flex flex-col justify-start`}
           >
             <PlayablePiano2D
@@ -971,6 +977,19 @@ export const App: React.FC = () => {
               onUserReleaseKey={handleUserReleaseKey}
               sustainPedal={sustainPedal}
               onToggleSustain={handleToggleSustain}
+              isFullPiano={viewportMode === 'piano2d'}
+              centerControls={
+                <CompactTransportPill
+                  isPlaying={isPlaying}
+                  isCountingIn={countInState?.active}
+                  onTogglePlay={handleTogglePlay}
+                  currentTime={currentTime}
+                  duration={currentSong.duration}
+                  activeHand={activeHand}
+                  onChangeHand={setActiveHand}
+                  onExpandPracticeBar={() => setIsPracticeBarExpanded(true)}
+                />
+              }
             />
           </div>
         )}
@@ -1085,6 +1104,9 @@ export const App: React.FC = () => {
         isCountInEnabled={isCountInEnabled}
         onToggleCountIn={() => setIsCountInEnabled(!isCountInEnabled)}
         isCountingIn={countInState?.active ?? false}
+        hasPianoKeyboard={viewportMode === 'dual' || viewportMode === 'piano2d'}
+        isExpanded={isPracticeBarExpanded}
+        onToggleExpand={setIsPracticeBarExpanded}
       />
 
       {/* Ingestion & Song Library Drawer */}

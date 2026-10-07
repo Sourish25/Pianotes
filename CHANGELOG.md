@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.3.0] - 2026-10-07
+
+### 🚀 Docked Transport Rail, Fullscreen 2D Piano Expansion, Camera Horizon & Safe HUD Offsets
+- **100% White Key Clearance via Integrated Transport Rail**:
+  - Exported `CompactTransportPill` (`[ Play/Pause | Time | Hand | Tools ]`) and docked it directly into the center whitespace gap of `PlayablePiano2D`'s Octave strip on mobile landscape.
+  - Suppressed the floating bottom practice pill when a piano keyboard is active (`hasPianoKeyboard && effectiveCompact`), completely eliminating thumb occlusion on Middle C keys (C4, D4, E4).
+  - Tapping "Tools" smoothly expands the floating practice sheet above the keyboard when comprehensive controls (Tempo, Count-In, Loop, Recording, Metronome) are requested.
+- **Fullscreen Responsive 2D Piano Key Expansion**:
+  - Added `.piano-wrapper-full` responsive CSS rules in `src/styles/piano.css`: keys dynamically scale from a fixed 200px to `calc(100% - 14px)` (~340px on flagship phones, ~700px on Android tablets).
+  - Eliminated the bottom black dead space void in Piano-Only mode, providing concert grand scale key proportions.
+- **Dynamic 3D Waterfall Camera Horizon**:
+  - Differentiated camera position and lookAt target when in 3D Waterfall Only vs Dual View (`targetCamY = 14.5`, `targetCamZ = 21.5`, looking at `1.0, -6`).
+  - Initialized camera coordinates conditionally on component mount to eliminate slow drift interpolation on startup.
+- **Safe HUD & Chord Badge Offsets**:
+  - Cleaned `@keyframes floatBadge` to only animate `translateY` and `scale`, preventing CSS transform conflicts.
+  - Relocated Floating Chord Badge to `top: isZenMode ? '16px' : '64px'; left: max(16px, env(safe-area-inset-left))`, preventing collisions with the PIANOTES logo and header navigation.
+  - Repositioned `Reset 3D` pill to `top: isZenMode ? '12px' : '64px'; right: max(16px, env(safe-area-inset-right))` below top-right header controls.
+- **Header & Main Viewport Flow**:
+  - Added dynamic padding `pt-[54px]` on `<main>` when `!isZenMode` and `pt-0` during Zen Mode, preventing the Octave ribbon and red felt strip from being obscured under the absolute header.
+- **Summary Modal Practice Encouragement**:
+  - If `score.score === 0`, switches modal title from "Virtuoso Performance" to "Practice Review", rank badge to "Practice Run (Ready to Play)", and avoids false celebration.
+- **Quality Assurance**:
+  - Expanded unit test suite to 57 passing tests (`npm test`).
+  - Zero lint errors and zero warnings (`npm run lint`).
+  - Clean production build and Capacitor sync.
+
+---
+
 ## [2.2.0] - 2026-10-07
 
 ### 🎹 Audio Engine Hardening, Pre-Roll Count-In & Acoustic Polish

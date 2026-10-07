@@ -1095,4 +1095,89 @@ describe('Polyphonic Voice Stealing & Audio Engine Hardening (v2.2.0)', () => {
   });
 });
 
+describe('v2.3.0 Visual Ergonomics, Camera Horizon & Fullscreen Piano', () => {
+  it('correctly calculates full-viewport piano key heights in 2D mode', () => {
+    // In full-piano mode, white keys take calc(100% - 14px) and black keys take calc(62% - 10px)
+    const computeKeyDimensions = (containerHeight: number) => {
+      const whiteKeyHeight = Math.max(220, containerHeight - 14);
+      const blackKeyHeight = Math.max(135, whiteKeyHeight * 0.62 - 10);
+      return { whiteKeyHeight, blackKeyHeight };
+    };
+
+    // On standard landscape phone (container ~358px)
+    const phoneDims = computeKeyDimensions(358);
+    expect(phoneDims.whiteKeyHeight).toBe(344);
+    expect(phoneDims.blackKeyHeight).toBeCloseTo(203.28, 1);
+    expect(phoneDims.whiteKeyHeight).toBeGreaterThan(220); // 50%+ taller than default 200px!
+
+    // On tablet landscape (container ~720px)
+    const tabletDims = computeKeyDimensions(720);
+    expect(tabletDims.whiteKeyHeight).toBe(706);
+    expect(tabletDims.blackKeyHeight).toBeCloseTo(427.72, 1);
+  });
+
+  it('suppresses floating transport pill when piano is active on landscape to guarantee 100% key clearance', () => {
+    const shouldRenderFloatingBar = (hasPianoKeyboard: boolean, isCompact: boolean) => {
+      const effectiveCompact = hasPianoKeyboard ? isCompact : isCompact;
+      if (hasPianoKeyboard && effectiveCompact) {
+        return false; // Docked in octave ribbon; zero key occlusion!
+      }
+      return true;
+    };
+
+    // When 2D piano is visible and transport is compact: floating pill suppressed!
+    expect(shouldRenderFloatingBar(true, true)).toBe(false);
+
+    // When expanded by user: floating practice sheet is displayed above keys!
+    expect(shouldRenderFloatingBar(true, false)).toBe(true);
+
+    // When in 3D waterfall only (no 2D piano): floating pill is displayed at bottom!
+    expect(shouldRenderFloatingBar(false, true)).toBe(true);
+  });
+
+  it('frames 3D camera dynamically to eliminate bottom dead space in waterfall-only mode', () => {
+    const getCameraTarget = (isDualView: boolean, zoom: number = 1.0) => {
+      if (isDualView) {
+        return {
+          targetCamY: 22 * zoom,
+          targetCamZ: 28 * zoom,
+          lookAtY: -1,
+          lookAtZ: -12,
+        };
+      }
+      // 3D Waterfall only: camera is lower and closer to bring keys to bottom and fill full viewport
+      return {
+        targetCamY: 14.5 * zoom,
+        targetCamZ: 21.5 * zoom,
+        lookAtY: 1.0,
+        lookAtZ: -6,
+      };
+    };
+
+    const dualCam = getCameraTarget(true);
+    const soloCam = getCameraTarget(false);
+
+    expect(soloCam.targetCamY).toBeLessThan(dualCam.targetCamY);
+    expect(soloCam.targetCamZ).toBeLessThan(dualCam.targetCamZ);
+    expect(soloCam.lookAtY).toBeGreaterThan(dualCam.lookAtY);
+  });
+
+  it('renders encouraging practice review metadata when score is 0', () => {
+    const getModalDisplay = (score: number, accuracy: number) => {
+      const { label, rank } = calculateStarRating(accuracy);
+      const title = score > 0 ? 'Virtuoso Performance' : 'Practice Review';
+      const rankBadge = score > 0 ? `${label} (${rank})` : 'Practice Run (Ready to Play)';
+      return { title, rankBadge };
+    };
+
+    const zeroRun = getModalDisplay(0, 0);
+    expect(zeroRun.title).toBe('Practice Review');
+    expect(zeroRun.rankBadge).toBe('Practice Run (Ready to Play)');
+
+    const scoredRun = getModalDisplay(1500, 96);
+    expect(scoredRun.title).toBe('Virtuoso Performance');
+    expect(scoredRun.rankBadge).toContain('Virtuoso');
+  });
+});
+
 

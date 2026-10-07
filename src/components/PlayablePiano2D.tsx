@@ -16,6 +16,8 @@ export interface PlayablePiano2DProps {
   onUserReleaseKey?: (midi: number) => void;
   sustainPedal: boolean;
   onToggleSustain: () => void;
+  isFullPiano?: boolean;
+  centerControls?: React.ReactNode;
 }
 
 export const PlayablePiano2D: React.FC<PlayablePiano2DProps> = ({
@@ -24,6 +26,8 @@ export const PlayablePiano2D: React.FC<PlayablePiano2DProps> = ({
   onUserReleaseKey,
   sustainPedal,
   onToggleSustain,
+  isFullPiano = false,
+  centerControls,
 }) => {
   const keyboardViewportRef = useRef<HTMLDivElement>(null);
   const miniViewportRef = useRef<HTMLDivElement>(null);
@@ -293,7 +297,7 @@ export const PlayablePiano2D: React.FC<PlayablePiano2DProps> = ({
   };
 
   return (
-    <div className="piano-wrapper">
+    <div className={`piano-wrapper ${isFullPiano ? 'piano-wrapper-full' : ''}`}>
       {/* Sleek Minimal Octave & Sustain Ribbon with 36px+ Touch Targets & Safe Area Insets */}
       <div
         className="flex items-center justify-between px-3 py-1 bg-[#080910] border-b border-white/10 text-xs select-none"
@@ -335,6 +339,13 @@ export const PlayablePiano2D: React.FC<PlayablePiano2DProps> = ({
             <ChevronRight className="w-4 h-4" />
           </button>
         </div>
+
+        {/* Center: Integrated Transport Controls (Zero Piano Key Occlusion) */}
+        {centerControls && (
+          <div className="flex items-center justify-center pointer-events-auto mx-2">
+            {centerControls}
+          </div>
+        )}
 
         {/* Right: Sustain Pedal Pill & Labels */}
         <div className="flex items-center gap-2">

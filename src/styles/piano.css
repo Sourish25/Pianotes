@@ -15,6 +15,35 @@
   padding-right: max(0px, env(safe-area-inset-right, 0px));
 }
 
+/* Fullscreen Responsive Piano (Playable Piano 2D Only Mode) */
+.piano-wrapper-full {
+  height: 100%;
+  flex: 1 1 0%;
+  min-height: 0;
+}
+
+.piano-wrapper-full .keyboard-viewport {
+  height: 100%;
+  flex: 1 1 0%;
+  min-height: 0;
+}
+
+.piano-wrapper-full .keyboard-keys-container {
+  height: 100%;
+  flex: 1 1 0%;
+  padding-bottom: max(16px, env(safe-area-inset-bottom, 16px));
+}
+
+.piano-wrapper-full .white-key {
+  height: calc(100% - 14px);
+  min-height: 220px;
+}
+
+.piano-wrapper-full .black-key {
+  height: calc(62% - 10px);
+  min-height: 135px;
+}
+
 /* Red felt damper strip above keys */
 .piano-felt-strip {
   width: 100%;

@@ -53,10 +53,99 @@ interface PracticeBarProps {
   onOpenVirtuosoSummary?: () => void;
   isZenMode?: boolean;
   onToggleZenMode?: () => void;
+  hasPianoKeyboard?: boolean;
+  isExpanded?: boolean;
+  onToggleExpand?: (expanded: boolean) => void;
   isCountInEnabled?: boolean;
   onToggleCountIn?: () => void;
   isCountingIn?: boolean;
 }
+
+export interface CompactTransportPillProps {
+  isPlaying: boolean;
+  isCountingIn?: boolean;
+  onTogglePlay: () => void;
+  currentTime: number;
+  duration: number;
+  activeHand: HandType;
+  onChangeHand: (hand: HandType) => void;
+  onExpandPracticeBar: () => void;
+}
+
+export const CompactTransportPill: React.FC<CompactTransportPillProps> = ({
+  isPlaying,
+  isCountingIn = false,
+  onTogglePlay,
+  currentTime,
+  duration,
+  activeHand,
+  onChangeHand,
+  onExpandPracticeBar,
+}) => {
+  const cycleHand = () => {
+    triggerHaptic('light');
+    if (activeHand === 'both') onChangeHand('right');
+    else if (activeHand === 'right') onChangeHand('left');
+    else onChangeHand('both');
+  };
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  return (
+    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#090b14]/90 backdrop-blur-3xl border border-white/20 shadow-[0_4px_16px_rgba(0,0,0,0.6),inset_0_1px_1px_rgba(255,255,255,0.3)] select-none">
+      <button
+        onClick={() => {
+          triggerHaptic('medium');
+          onTogglePlay();
+        }}
+        className="w-8 h-8 min-w-[32px] min-h-[32px] rounded-full flex items-center justify-center bg-white text-black hover:bg-zinc-200 active:scale-95 transition-all shadow-[0_0_12px_rgba(255,255,255,0.4)] cursor-pointer"
+        title={isPlaying ? 'Pause' : isCountingIn ? 'Cancel Count-In' : 'Play'}
+      >
+        {isPlaying ? (
+          <Pause className="w-3.5 h-3.5 fill-current text-black" />
+        ) : isCountingIn ? (
+          <Timer className="w-3.5 h-3.5 text-purple-600 animate-spin" />
+        ) : (
+          <Play className="w-3.5 h-3.5 fill-current text-black ml-0.5" />
+        )}
+      </button>
+
+      <div className="font-mono text-xs text-zinc-300 font-semibold px-1">
+        <span className="text-white">{formatTime(currentTime)}</span>
+        <span className="text-zinc-600 mx-1">/</span>
+        <span>{formatTime(duration)}</span>
+      </div>
+
+      <button
+        onClick={cycleHand}
+        title={`Hand: ${activeHand.toUpperCase()}`}
+        className="px-2.5 py-1 min-h-[30px] rounded-full text-[10px] font-bold border border-white/10 bg-white/5 text-zinc-300 flex items-center gap-1 cursor-pointer hover:bg-white/10"
+      >
+        <span
+          className={`w-1.5 h-1.5 rounded-full ${
+            activeHand === 'left' ? 'bg-purple-400' : activeHand === 'right' ? 'bg-amber-400' : 'bg-white'
+          }`}
+        />
+        <span className="capitalize">{activeHand}</span>
+      </button>
+
+      <button
+        onClick={() => {
+          triggerHaptic('light');
+          onExpandPracticeBar();
+        }}
+        title="Practice Tools & Controls"
+        className="p-1.5 min-w-[30px] min-h-[30px] rounded-full text-zinc-400 hover:text-white hover:bg-white/10 flex items-center justify-center transition-colors cursor-pointer"
+      >
+        <Sliders className="w-3.5 h-3.5 text-purple-300" />
+      </button>
+    </div>
+  );
+};
 
 export const PracticeBar: React.FC<PracticeBarProps> = ({
   isPlaying,
@@ -89,9 +178,12 @@ export const PracticeBar: React.FC<PracticeBarProps> = ({
   onOpenVirtuosoSummary,
   isZenMode = false,
   onToggleZenMode,
-  isCountInEnabled = true,
+  isCountInEnabled = false,
   onToggleCountIn,
   isCountingIn = false,
+  hasPianoKeyboard = false,
+  isExpanded: isExpandedProp,
+  onToggleExpand,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [userInteractedRecently, setUserInteractedRecently] = useState(true);
@@ -101,6 +193,24 @@ export const PracticeBar: React.FC<PracticeBarProps> = ({
     }
     return false;
   });
+
+  const effectiveCompact = hasPianoKeyboard
+    ? isExpandedProp !== undefined
+      ? !isExpandedProp
+      : isCompact
+    : isCompact;
+
+  const handleExpand = () => {
+    triggerHaptic('light');
+    setIsCompact(false);
+    if (onToggleExpand) onToggleExpand(true);
+  };
+
+  const handleCollapse = () => {
+    triggerHaptic('light');
+    setIsCompact(true);
+    if (onToggleExpand) onToggleExpand(false);
+  };
 
   // Dynamic auto-compact on mobile landscape rotation / resize
   useEffect(() => {
@@ -188,11 +298,17 @@ export const PracticeBar: React.FC<PracticeBarProps> = ({
 
   const isDimmed = (isZenMode || (!userInteractedRecently && isPlaying)) && !isHovered;
 
+  if (hasPianoKeyboard && effectiveCompact) {
+    return null;
+  }
+
   return (
     <div
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      className={`fixed bottom-2 left-1/2 -translate-x-1/2 z-40 w-[96%] max-w-4xl transition-all duration-500 select-none pointer-events-none flex flex-col items-center ${
+      className={`fixed ${
+        hasPianoKeyboard ? 'bottom-[235px]' : 'bottom-2'
+      } left-1/2 -translate-x-1/2 z-40 w-[96%] max-w-4xl transition-all duration-500 select-none pointer-events-none flex flex-col items-center ${
         isDimmed ? 'opacity-25 hover:opacity-100 translate-y-1' : 'opacity-100 translate-y-0'
       }`}
       style={{
@@ -201,7 +317,7 @@ export const PracticeBar: React.FC<PracticeBarProps> = ({
         paddingRight: 'max(8px, env(safe-area-inset-right, 8px))',
       }}
     >
-      {isCompact ? (
+      {effectiveCompact ? (
         /* Retracted / Compact Floating Transport Pill (restores 100% white key thumb clearance) */
         <div className="pointer-events-auto flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#090b14]/90 backdrop-blur-3xl border border-white/20 shadow-[0_12px_30px_rgba(0,0,0,0.8),inset_0_1px_1px_rgba(255,255,255,0.4)] animate-in fade-in slide-in-from-bottom-2 duration-200">
           <button
@@ -241,10 +357,7 @@ export const PracticeBar: React.FC<PracticeBarProps> = ({
           </button>
 
           <button
-            onClick={() => {
-              triggerHaptic('light');
-              setIsCompact(false);
-            }}
+            onClick={handleExpand}
             title="Expand Practice Bar"
             className="p-2 min-w-[40px] min-h-[40px] rounded-full text-zinc-400 hover:text-white hover:bg-white/10 flex items-center justify-center transition-colors cursor-pointer"
           >
@@ -571,10 +684,7 @@ export const PracticeBar: React.FC<PracticeBarProps> = ({
 
               {/* Sleek Retract / Compact Bar Toggle */}
               <button
-                onClick={() => {
-                  triggerHaptic('light');
-                  setIsCompact(true);
-                }}
+                onClick={handleCollapse}
                 title="Retract Practice Bar for Thumb Clearance"
                 className="w-10 h-10 min-w-[40px] min-h-[40px] flex items-center justify-center rounded-full text-zinc-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
               >

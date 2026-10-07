@@ -27,4 +27,4 @@ dist-ssr
 *.apk
 
 # Audit & critique artifacts
-critique_screenshots/
+*critique_screenshots*/

@@ -179,8 +179,8 @@
 }
 
 @keyframes floatBadge {
-  0% { transform: translate(-50%, -50%) translateY(0px) scale(1); }
-  100% { transform: translate(-50%, -50%) translateY(-6px) scale(1.02); }
+  0% { transform: translateY(0px) scale(1); }
+  100% { transform: translateY(-5px) scale(1.02); }
 }
 
 /* Left Hand / Right Hand Hand Separation Glows */
